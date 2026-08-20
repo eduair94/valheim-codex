@@ -55,6 +55,53 @@ export function Answer({
             </ol>
           );
         }
+        if (block.type === 'table') {
+          return (
+            <div key={i} className="answer-table" role="region" aria-label="Tabla" tabIndex={0}>
+              <table>
+                <thead>
+                  <tr>
+                    {block.header.map((cell, j) => (
+                      <th key={j} scope="col">
+                        {inline(cell)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, j) => (
+                    <tr key={j}>
+                      {row.map((cell, k) =>
+                        k === 0 ? (
+                          <th key={k} scope="row">
+                            {inline(cell)}
+                          </th>
+                        ) : (
+                          <td key={k}>{inline(cell)}</td>
+                        ),
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        if (block.type === 'image') {
+          const image = citations.find((c) => c.n === block.n)?.image;
+          // No image on that source: render nothing. An answer missing a
+          // picture still reads; a broken image frame does not.
+          if (!image) return null;
+          return (
+            <figure key={i} className="answer-figure">
+              {/* Hotlinked from Fandom's CDN, and deliberately not `next/image`:
+                  third-party URLs that would otherwise be proxied and re-encoded
+                  through our server for no gain. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image.url} alt={image.alt} loading="lazy" decoding="async" />
+            </figure>
+          );
+        }
         return <p key={i}>{inline(block.segments)}</p>;
       })}
     </div>

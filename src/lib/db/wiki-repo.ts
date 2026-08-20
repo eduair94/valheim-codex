@@ -417,3 +417,42 @@ export async function countArticles(db: Db): Promise<number> {
   const rows = await rawQuery<{ n: string }>(db, sql`SELECT count(*)::text n FROM articles`);
   return Number(rows[0]?.n ?? 0);
 }
+
+/**
+ * The lead image for each of a set of articles, keyed by slug.
+ *
+ * Exists so an answer can show a picture without the model ever naming a URL.
+ * A model asked for an image URL will happily invent a plausible one, and a
+ * broken image in an answer about game mechanics reads as a broken app. Here
+ * the model may only point at a source it already cited; the address comes
+ * from the row the citation resolves to.
+ *
+ * Prefers the infobox image — on this wiki that is the item or creature
+ * itself, shot on a plain background — and falls back to the first inline
+ * image, which is usually a screenshot of it in the world.
+ */
+export async function getLeadImages(
+  db: Db,
+  slugs: string[],
+): Promise<Map<string, { url: string; alt: string }>> {
+  const wanted = [...new Set(slugs.filter(Boolean))];
+  if (wanted.length === 0) return new Map();
+
+  const rows = await rawQuery<{ slug: string; url: string | null; alt: string | null }>(
+    db,
+    sql`
+      SELECT
+        slug,
+        COALESCE(infobox -> 'image' ->> 'url', images -> 0 ->> 'url')  AS url,
+        COALESCE(infobox -> 'image' ->> 'alt', images -> 0 ->> 'alt')  AS alt
+      FROM articles
+      WHERE slug = ANY(${`{${wanted.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(',')}}`}::text[])
+    `,
+  );
+
+  const found = new Map<string, { url: string; alt: string }>();
+  for (const row of rows) {
+    if (row.url) found.set(row.slug, { url: row.url, alt: row.alt ?? '' });
+  }
+  return found;
+}

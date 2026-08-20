@@ -45,7 +45,12 @@ export function Composer({
   };
 
   return (
-    <div className="border-t border-moss bg-bog/95 px-4 py-3 backdrop-blur sm:px-6">
+    <div /*
+       * The bottom padding clears the iPhone home indicator, which otherwise
+       * sits on top of the send button. `max()` keeps the normal padding on
+       * every device that reports no inset.
+       */
+      className="border-t border-moss bg-bog/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6">
       <form
         className="mx-auto flex max-w-3xl items-end gap-2"
         onSubmit={(e) => {
@@ -67,7 +72,13 @@ export function Composer({
             }}
             placeholder={t.composerPlaceholder}
             aria-label={t.composerPlaceholder}
-            className="w-full resize-none bg-transparent px-3.5 py-2.5 text-[0.95rem] text-birch placeholder:text-ash/60 focus:outline-none"
+            /*
+             * 16px on phones, not 15. Safari zooms the page when a field
+             * smaller than that takes focus and does not zoom back out, so the
+             * whole chat stays magnified for the rest of the session. Below
+             * `sm` the difference is invisible; the bug is not.
+             */
+            className="w-full resize-none bg-transparent px-3.5 py-2.5 text-base text-birch placeholder:text-ash/60 focus:outline-none sm:text-[0.95rem]"
           />
         </div>
 
@@ -75,7 +86,7 @@ export function Composer({
           <button
             type="button"
             onClick={onStop}
-            className="h-[42px] shrink-0 rounded-md border border-moss px-4 text-sm text-ash transition-colors hover:border-lichen hover:text-birch"
+            className="h-11 shrink-0 rounded-md border border-moss px-4 text-sm text-ash transition-colors hover:border-lichen hover:text-birch sm:h-[42px]"
           >
             {t.stop}
           </button>
@@ -83,7 +94,7 @@ export function Composer({
           <button
             type="submit"
             disabled={disabled || value.trim() === ''}
-            className="h-[42px] shrink-0 rounded-md bg-forge px-5 text-sm font-medium text-bog transition-all hover:bg-forge/90 disabled:cursor-not-allowed disabled:bg-moss disabled:text-ash"
+            className="h-11 shrink-0 rounded-md bg-forge px-5 text-sm font-medium text-bog transition-all hover:bg-forge/90 disabled:cursor-not-allowed disabled:bg-moss disabled:text-ash sm:h-[42px]"
           >
             {t.send}
           </button>

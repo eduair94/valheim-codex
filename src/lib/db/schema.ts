@@ -102,6 +102,11 @@ export type Citation = {
    * case the citation falls back to the original wiki URL.
    */
   slug?: string | null;
+  /**
+   * Lead image of the cited article, resolved server-side so an `[img:n]`
+   * marker in an answer can never point at a URL the model invented.
+   */
+  image?: { url: string; alt: string } | null;
 };
 
 /** A single message. `parts` mirrors the AI SDK UIMessage part array. */

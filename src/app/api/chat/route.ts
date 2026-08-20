@@ -21,6 +21,7 @@ import { buildContext, buildSystemPrompt, buildUserPrompt, noContextAnswer } fro
 import { retrieve } from '@/lib/rag/retrieve';
 import { streamWithFallback } from '@/lib/rag/fallback';
 import { answerCandidates } from '@/lib/rag/provider';
+import { getLeadImages } from '@/lib/db/wiki-repo';
 import { rewriteQueries } from '@/lib/rag/rewrite';
 
 export const runtime = 'nodejs';
@@ -88,6 +89,20 @@ export async function POST(request: Request): Promise<Response> {
       const chunks = await retrieve(db, { queries });
 
       const { context, citations } = buildContext(chunks);
+
+      /*
+       * Attach each cited article's lead image before the sources go out, so
+       * an `[img:n]` marker in the answer already has an address to resolve
+       * against by the time it streams in. One query for the whole set.
+       */
+      const images = await getLeadImages(
+        db,
+        citations.map((citation) => citation.slug ?? '').filter(Boolean),
+      );
+      for (const citation of citations) {
+        citation.image = citation.slug ? (images.get(citation.slug) ?? null) : null;
+      }
+
       writer.write({ type: 'data-sources', id: 'sources', data: { citations } });
 
       // Nothing retrieved: say so directly instead of asking the model to

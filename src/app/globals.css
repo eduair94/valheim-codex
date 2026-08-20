@@ -228,3 +228,96 @@ body {
   font-size: 0.88em;
   color: var(--color-forge);
 }
+
+/*
+  Answer tables: a stat block, carved rather than boxed.
+
+  No outer frame and no zebra striping — both are table defaults that would
+  import a spreadsheet into a firelit camp. What the reader is actually doing
+  is comparing a quantity across rows ("how much iron at level 3"), so the
+  work is done by tabular monospaced numerals, which put every digit in the
+  same column, and by hairlines thin enough to guide the eye without drawing
+  it. The header borrows the `.label` treatment already used for section
+  labels, so a table reads as part of the same system.
+*/
+.answer-table {
+  /*
+    The table scrolls, never the page. A crafting table with five columns is
+    wider than a phone, and a body that scrolls sideways is the single most
+    common way a mobile layout breaks.
+  */
+  overflow-x: auto;
+  margin: 0.9rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-forge) 40%, transparent);
+  border-bottom: 1px solid var(--color-lichen);
+}
+.answer-table table {
+  width: 100%;
+  /* Cells keep their content rather than wrapping into unreadable columns. */
+  min-width: max-content;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.answer-table th,
+.answer-table td {
+  padding: 0.5rem 0.9rem;
+  text-align: left;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.answer-table th:first-child,
+.answer-table td:first-child {
+  padding-left: 0;
+}
+.answer-table thead th {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--color-ash);
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+.answer-table tbody tr + tr th,
+.answer-table tbody tr + tr td {
+  border-top: 1px solid color-mix(in srgb, var(--color-lichen) 60%, transparent);
+}
+/* The row's own label: the level, the item, whatever the row is about. */
+.answer-table tbody th {
+  font-weight: 600;
+  color: var(--color-birch);
+}
+/*
+  Quantities align only if the digits are the same width. This is the whole
+  reason the table beats a list for upgrade costs.
+*/
+.answer-table tbody td {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-birch) 88%, transparent);
+}
+
+/*
+  Answer figure: the thing itself, at the size it deserves.
+
+  Capped small and left-aligned rather than full-bleed. The picture answers
+  "what does it look like", which a 160px sprite does completely; blowing it
+  up would push the text that carries the actual answer off the screen.
+*/
+.answer-figure {
+  margin: 0.9rem 0;
+}
+.answer-figure img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(220px, 60%);
+  max-height: 220px;
+  object-fit: contain;
+  padding: 0.6rem;
+  background: color-mix(in srgb, var(--color-moss) 55%, transparent);
+  border: 1px solid var(--color-lichen);
+  border-radius: 3px;
+}

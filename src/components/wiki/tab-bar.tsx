@@ -37,7 +37,7 @@ export function TabBar({ lang, authenticated }: { lang: Lang; authenticated: boo
   return (
     <nav
       aria-label={t.wiki}
-      className="sticky bottom-0 z-30 border-t border-moss bg-peat/95 backdrop-blur sm:top-0 sm:bottom-auto sm:border-b sm:border-t-0"
+      className="sticky bottom-0 z-30 border-t border-moss bg-peat/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:top-0 sm:bottom-auto sm:border-b sm:border-t-0 sm:pb-0"
     >
       <ul className="mx-auto flex max-w-3xl">
         {tabs.map((tab) => (
@@ -45,7 +45,7 @@ export function TabBar({ lang, authenticated }: { lang: Lang; authenticated: boo
             <Link
               href={tab.href}
               aria-current={isActive(tab.key, tab.href) ? 'page' : undefined}
-              className={`flex flex-col items-center gap-0.5 py-2.5 text-[0.7rem] transition-colors sm:flex-row sm:justify-center sm:gap-2 sm:text-sm ${
+              className={`flex min-h-11 flex-col items-center justify-center gap-0.5 py-2.5 text-[0.7rem] transition-colors sm:min-h-0 sm:flex-row sm:gap-2 sm:text-sm ${
                 isActive(tab.key, tab.href) ? 'text-forge' : 'text-ash hover:text-birch'
               }`}
             >

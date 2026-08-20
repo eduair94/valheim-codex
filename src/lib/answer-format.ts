@@ -3,10 +3,16 @@
  * plain functions.
  *
  * A full markdown parser is not warranted: the model is instructed to produce
- * short prose, bullets, bold, inline code and `[n]` citation markers, and
- * shipping a parser to handle five constructs would cost more than it returns.
- * Anything unrecognised falls through as text, so an unexpected construct
- * degrades to readable rather than to broken markup.
+ * short prose, bullets, bold, inline code, tables, `[n]` citation markers and
+ * `[img:n]` image markers, and shipping a parser for the whole of markdown to
+ * handle seven constructs would cost more than it returns. Anything
+ * unrecognised falls through as text, so an unexpected construct degrades to
+ * readable rather than to broken markup.
+ *
+ * `[img:n]` names a citation, never a URL. A model asked for an image address
+ * will invent a plausible one; asked to point at a source it already cited, it
+ * cannot, because the address is looked up server-side from the row that
+ * citation resolves to.
  */
 
 export type InlineSegment =
@@ -18,7 +24,22 @@ export type InlineSegment =
 export type AnswerBlock =
   | { type: 'paragraph'; segments: InlineSegment[] }
   | { type: 'bullets'; items: InlineSegment[][] }
-  | { type: 'numbers'; items: InlineSegment[][] };
+  | { type: 'numbers'; items: InlineSegment[][] }
+  | { type: 'table'; header: InlineSegment[][]; rows: InlineSegment[][][] }
+  | { type: 'image'; n: number };
+
+/** `| a | b |` — a row of a markdown table. */
+const TABLE_ROW = /^\|(.+)\|\s*$/;
+/** `| --- | :---: |` — the rule under a header, which is what makes it a table. */
+const TABLE_RULE = /^\|[\s:|-]+\|\s*$/;
+/** `[img:3]` alone on a line. */
+const IMAGE_LINE = /^\[img:(\d+)\]$/;
+
+/** Splits `| a | b |` into its cells, tolerating missing outer pipes. */
+function tableCells(line: string): string[] {
+  const inner = TABLE_ROW.exec(line.trim())?.[1] ?? line.trim();
+  return inner.split('|').map((cell) => cell.trim());
+}
 
 /** Splits an answer into paragraphs and lists. */
 export function parseAnswer(text: string): AnswerBlock[] {
@@ -43,10 +64,37 @@ export function parseAnswer(text: string): AnswerBlock[] {
     }
   };
 
-  for (const line of lines) {
-    const trimmed = line.trim();
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = (lines[i] ?? '').trim();
     if (trimmed === '') {
       flush();
+      continue;
+    }
+
+    const image = IMAGE_LINE.exec(trimmed);
+    if (image) {
+      flush();
+      blocks.push({ type: 'image', n: Number(image[1]) });
+      continue;
+    }
+
+    /*
+     * A row of pipes is only a table if the next line is the rule. Without
+     * that check a sentence containing a pipe becomes a one-column table.
+     */
+    if (TABLE_ROW.test(trimmed) && TABLE_RULE.test((lines[i + 1] ?? '').trim())) {
+      flush();
+      const header = tableCells(trimmed).map(parseInline);
+      const rows: InlineSegment[][][] = [];
+
+      i += 2;
+      while (i < lines.length && TABLE_ROW.test((lines[i] ?? '').trim())) {
+        rows.push(tableCells(lines[i] ?? '').map(parseInline));
+        i += 1;
+      }
+      i -= 1;
+
+      blocks.push({ type: 'table', header, rows });
       continue;
     }
 
