@@ -1,0 +1,47 @@
+# Self-hosted deployment.
+#
+# The database lives elsewhere (Neon), so this container holds no state: if the
+# host dies or is rebuilt, `docker compose up -d --build` is a full recovery.
+#
+# Published on the loopback interface only. The host has a public IP, and this
+# app is reached through a Cloudflare tunnel, which connects outbound from the
+# same machine — so nothing needs to be exposed to the internet directly, and
+# binding to 0.0.0.0 would quietly do exactly that.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: valheim-codex:latest
+    container_name: valheim-codex
+    restart: unless-stopped
+
+    env_file: .env
+
+    ports:
+      - '127.0.0.1:${APP_PORT:-3210}:3000'
+
+    # The model needs ~740 MB and the Node server another ~150 MB. The ceiling
+    # is here so a leak in this container cannot starve the other services on a
+    # shared host.
+    mem_limit: 2g
+    memswap_limit: 2g
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      # Generous: the first start loads the model before serving.
+      start_period: 60s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

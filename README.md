@@ -258,74 +258,24 @@ split that lexical search cannot bridge and that the LLM rewrite does handle.
 
 ## Deploying
 
-The app carries its own embedding model, which rules out serverless: the
-transformers runtime plus the model is ~580 MB, past every function size limit.
-It is also the better arrangement — a local embedding costs nothing per query
-and returns in **14 ms**, against ~300 ms for an embeddings API.
+1. **Database** — create a Neon project, then run migrations against it:
+   ```bash
+   DATABASE_URL='postgresql://…' pnpm db:migrate
+   ```
+2. **Vercel** — import the repo and set:
+   `GOOGLE_GENERATIVE_AI_API_KEY`, `DATABASE_URL`, `APP_PASSWORD_HASH`,
+   `SESSION_SECRET`, `WIKI_CONTACT`.
+3. **Ingest** — run `pnpm ingest` locally against `DATABASE_URL`, or add the
+   same secrets to the repo and use the `Ingest wiki` GitHub Actions workflow.
+   It runs weekly and can be triggered by hand.
+4. **In-app re-index button** — set `GITHUB_TOKEN` (with `actions: write`) and
+   `GITHUB_REPO` (`owner/repo`) in Vercel. Without them the button explains
+   that it is not configured rather than failing silently.
 
-So: a container for the app, managed Postgres for the data.
+The ingest deliberately does not run inside a Vercel function: a full pass takes
+minutes and serverless caps out at 60–300 seconds.
 
-```
-Fly.io ─── container: Next 16 + multilingual-e5-base baked in
-   │
-   └────▶ Neon: pgvector, articles, chat history
-```
-
-Gemini is still used, but only to write and rewrite text — never for
-embeddings, which is what removes the 1,000-requests-per-day ceiling.
-
-### 1. Database
-
-Create a Neon project, then apply the schema:
-
-```bash
-DATABASE_URL='postgresql://…' pnpm db:migrate
-```
-
-`CREATE EXTENSION vector` is part of the first migration; Neon allows it.
-
-### 2. Index
-
-```bash
-DATABASE_URL='postgresql://…' EMBEDDING_PROVIDER=local pnpm ingest
-```
-
-About 20 minutes for 1,027 articles. Re-runs are incremental — a patch that
-edits 40 pages costs a couple of minutes. The scheduled GitHub Actions workflow
-does the same thing weekly once `DATABASE_URL` is a repository secret.
-
-### 3. Credentials
-
-```bash
-pnpm auth:hash "a password you have not published"
-```
-
-Generate a fresh one. The password in the test files is a local default, and
-this repository is public.
-
-### 4. Fly
-
-```bash
-fly auth login
-fly launch --no-deploy          # reads fly.toml; keep the app name
-fly secrets set   DATABASE_URL='postgresql://…'   GOOGLE_GENERATIVE_AI_API_KEY='…'   APP_PASSWORD_HASH='scrypt.…'   SESSION_SECRET='…'   WIKI_CONTACT='you@example.com'
-fly deploy
-```
-
-`fly.toml` asks for a 2 GB `shared-cpu-1x` in `ord`, close to Neon's
-`us-east-2`. The memory figure is measured, not guessed: 740 MB for the loaded
-model and ~150 MB for the Next server, so 1 GB meets the OOM killer under load.
-
-The machine does not scale to zero. Loading the model takes 1.7 s, and putting
-that on the first question of every session is a poor trade for an app you open
-mid-game.
-
-### 5. Optional: re-index from the app
-
-Set `GITHUB_TOKEN` (scope `actions: write`) and `GITHUB_REPO` as Fly secrets, and
-add `DATABASE_URL` plus `GOOGLE_GENERATIVE_AI_API_KEY` as repository secrets.
-The "Update index" button then dispatches the workflow. Without them the button
-says it is not configured rather than failing quietly.
+---
 
 ## Two traps worth knowing about
 
@@ -396,18 +346,3 @@ is not public, and chunk sizing only needs to be in the right ballpark.
 Drizzle, Zod 4). TypeScript is pinned to 5.9 and ESLint to 9 rather than the
 just-released TypeScript 7 (native port) and ESLint 10; both are worth revisiting
 once the surrounding tooling catches up.
-
----
-
-## License and attribution
-
-The code is MIT licensed — see [LICENSE](LICENSE).
-
-The wiki content it indexes is **not** ours. Articles come from the
-[Valheim Wiki on Fandom](https://valheim.fandom.com), licensed CC BY-SA, and
-images are hotlinked from Fandom's CDN. Every answer and every article page
-links back to its source, which is both the point of the design and what the
-licence asks for. If you run this publicly, keep those links.
-
-Valheim is a game by Iron Gate AB. This project is not affiliated with Iron
-Gate or with Fandom.
