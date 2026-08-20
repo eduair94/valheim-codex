@@ -262,7 +262,18 @@ function DataTable({ block }: { block: TableBlock }) {
       {block.caption ? (
         <figcaption className="label mb-1.5">{block.caption}</figcaption>
       ) : null}
-      <div data-testid="table-scroller" className="overflow-x-auto rounded-md border border-moss">
+      {/*
+         * Focusable because it scrolls. A pointer can drag a wide table
+         * sideways; without a tab stop a keyboard cannot reach the columns
+         * past the fold at all.
+         */}
+      <div
+        data-testid="table-scroller"
+        tabIndex={0}
+        role="region"
+        aria-label={block.caption ?? "Tabla"}
+        className="overflow-x-auto rounded-md border border-moss"
+      >
         <table className="w-full border-collapse text-left text-[0.8rem]">
           <thead>
             <tr className="bg-peat">

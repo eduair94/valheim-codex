@@ -178,7 +178,15 @@ function CompareGrid({ table, lang }: { table: CompareTable; lang: Lang }) {
     );
 
   return (
-    <div className="overflow-x-auto rounded-md border border-moss">
+    // Focusable because it scrolls: the comparison is wider than a phone by
+    // design, and a keyboard has no other way to reach the columns past the
+    // fold.
+    <div
+      tabIndex={0}
+      role="region"
+      aria-label={t.wikiCompare ?? 'Comparación'}
+      className="overflow-x-auto rounded-md border border-moss"
+    >
       <table className="w-full border-collapse text-left text-[0.8rem]">
         <thead>
           <tr className="bg-peat">
