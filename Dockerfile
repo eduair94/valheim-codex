@@ -20,9 +20,12 @@
 # ---- deps: everything, because the build needs devDependencies --------------
 FROM node:22-slim AS deps
 WORKDIR /app
+# `corepack enable` alone installs whatever pnpm is newest, which is not the
+# one that produced the lockfile. package.json pins it, and this makes corepack
+# fetch that exact version before the install runs.
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN corepack prepare --activate && pnpm install --frozen-lockfile
 
 # ---- builder ----------------------------------------------------------------
 FROM node:22-slim AS builder
@@ -48,7 +51,7 @@ FROM node:22-slim AS proddeps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+RUN corepack prepare --activate && pnpm install --frozen-lockfile --prod
 
 # ---- runner -----------------------------------------------------------------
 FROM node:22-slim AS runner

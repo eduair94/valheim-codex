@@ -346,3 +346,12 @@ is not public, and chunk sizing only needs to be in the right ballpark.
 Drizzle, Zod 4). TypeScript is pinned to 5.9 and ESLint to 9 rather than the
 just-released TypeScript 7 (native port) and ESLint 10; both are worth revisiting
 once the surrounding tooling catches up.
+
+`packageManager` pins pnpm to the version that produced the lockfile. Without
+it, `corepack enable` on a build host installs whatever pnpm is newest — which
+is how a container build first failed here: pnpm 11 enforces a
+`minimumReleaseAge` policy that rejects packages published in the last day, and
+several dependencies had been released hours earlier. That policy is a real
+supply-chain protection and worth adopting deliberately, by upgrading pnpm and
+regenerating the lockfile, rather than inheriting silently from whatever the
+build host happens to download.
