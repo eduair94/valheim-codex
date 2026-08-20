@@ -20,3 +20,6 @@ ingest.log
 tmp-*.ts
 tmp-*.mjs
 tmp-*.cjs
+
+# Written by scripts/create-app-role.ts; holds a live database password.
+.app-role-url

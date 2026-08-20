@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { sql } from 'drizzle-orm';
 import { Chat } from '@/components/chat';
 import { getSession } from '@/lib/auth/server';
+import { PUBLIC_HOME } from '@/lib/auth/access';
 import { getDb } from '@/lib/db/client';
 import { rawQuery } from '@/lib/db/create-db';
 import { listConversations } from '@/lib/db/repo';
@@ -24,10 +25,12 @@ export default async function Page({
 }: {
   searchParams: Promise<{ about?: string }>;
 }) {
-  // Verified here as well as in middleware: middleware handles routing, this
-  // is the gate that actually stands between a request and the data.
+  // Verified here as well as in the proxy: the proxy handles routing, this is
+  // the gate that actually stands between a request and the model bill.
+  // Signed-out visitors go to the reader rather than a password prompt: they
+  // are far likelier to have wanted the wiki than an account they do not have.
   const session = await getSession();
-  if (!session) redirect('/login');
+  if (!session) redirect(PUBLIC_HOME);
 
   const db = await getDb();
   const [rows, statsRows, cookieStore] = await Promise.all([

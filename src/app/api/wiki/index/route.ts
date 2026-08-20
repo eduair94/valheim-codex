@@ -1,4 +1,3 @@
-import { getSession, unauthorizedResponse } from '@/lib/auth/server';
 import { getDb } from '@/lib/db/client';
 import { getTitleIndex } from '@/lib/db/wiki-repo';
 
@@ -13,9 +12,8 @@ export const runtime = 'nodejs';
  * in the background.
  */
 export async function GET(): Promise<Response> {
-  const session = await getSession();
-  if (!session) return unauthorizedResponse();
-
+  // Public, like the reader it serves: article text already published on a
+  // public wiki, answered by one indexed query. Nothing here spends tokens.
   const db = await getDb();
   const entries = await getTitleIndex(db);
 

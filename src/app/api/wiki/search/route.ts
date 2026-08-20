@@ -1,4 +1,3 @@
-import { getSession, unauthorizedResponse } from '@/lib/auth/server';
 import { getDb } from '@/lib/db/client';
 import { searchContent } from '@/lib/db/wiki-repo';
 
@@ -12,9 +11,8 @@ export const runtime = 'nodejs';
  * name".
  */
 export async function GET(request: Request): Promise<Response> {
-  const session = await getSession();
-  if (!session) return unauthorizedResponse();
-
+  // Public, like the reader it serves: article text already published on a
+  // public wiki, answered by one indexed query. Nothing here spends tokens.
   const query = new URL(request.url).searchParams.get('q')?.slice(0, 200) ?? '';
   if (!query.trim()) return Response.json({ hits: [] });
 

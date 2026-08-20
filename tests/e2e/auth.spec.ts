@@ -19,8 +19,32 @@ async function signIn(page: Page, password: string): Promise<void> {
 }
 
 test.describe('access control', () => {
-  test('an anonymous visitor is sent to the login page', async ({ page }) => {
+  test('an anonymous visitor lands on the reader, not a password prompt', async ({ page }) => {
     await page.goto('/');
+    await expect(page).toHaveURL(/\/wiki/);
+    await expect(page.getByPlaceholder(/Buscá un objeto/)).toBeVisible();
+  });
+
+  test('an anonymous visitor can read an article and search inside it', async ({ page }) => {
+    await page.goto('/wiki/a/iron-sword');
+    await expect(page.getByRole('heading', { level: 1, name: 'Iron Sword' })).toBeVisible();
+
+    await page.goto('/wiki');
+    await page.getByPlaceholder(/Buscá un objeto/).fill('iron sword');
+    await expect(page.getByRole('link', { name: /Iron Sword/ }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test('the read-only API answers an anonymous request', async ({ request }) => {
+    for (const path of ['/api/wiki/index', '/api/wiki/search?q=iron']) {
+      expect((await request.get(path)).status(), path).toBe(200);
+    }
+  });
+
+  test('the chat tab says it needs a password before asking for one', async ({ page }) => {
+    await page.goto('/wiki');
+    await page.getByRole('link', { name: /Chat/ }).click();
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole('heading', { name: 'Valheim Codex' })).toBeVisible();
   });
@@ -51,7 +75,9 @@ test.describe('access control', () => {
       },
     ]);
     await page.goto('/');
-    await expect(page).toHaveURL(/\/login/);
+    // Bounced to the public reader like any other stranger. The forged claim
+    // buys nothing: the chat, and the bill behind it, stay out of reach.
+    await expect(page).toHaveURL(/\/wiki/);
   });
 
   test('a wrong password is rejected and says so', async ({ page }) => {

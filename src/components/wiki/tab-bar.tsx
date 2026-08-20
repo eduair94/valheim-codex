@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
+import { AUTHENTICATED_HOME, loginHref } from '@/lib/auth/access';
 import { strings, type Lang } from '@/lib/i18n/strings';
 
 /**
@@ -11,18 +13,26 @@ import { strings, type Lang } from '@/lib/i18n/strings';
  * point of this reader is that it is usable one-handed mid-game. It becomes a
  * top bar on wider screens, where reaching the bottom edge is not a virtue.
  */
-export function TabBar({ lang }: { lang: Lang }) {
+export function TabBar({ lang, authenticated }: { lang: Lang; authenticated: boolean }) {
   const t = strings(lang);
   const pathname = usePathname();
 
+  /*
+   * Reading needs no account; asking does. For a signed-out visitor the chat
+   * tab goes to the login form rather than to the chat, which would only
+   * bounce them back here — and it says so, so the password is not a surprise
+   * sprung after the click.
+   */
+  const chatHref = (authenticated ? AUTHENTICATED_HOME : loginHref(AUTHENTICATED_HOME)) as Route;
+
   const tabs = [
-    { href: '/wiki' as const, label: t.wikiSearch, icon: '⌕' },
-    { href: '/wiki/browse' as const, label: t.wikiBrowse, icon: '☰' },
-    { href: '/' as const, label: t.wikiChat, icon: '✦' },
+    { key: 'search', href: '/wiki' as Route, label: t.wikiSearch, icon: '⌕', locked: false },
+    { key: 'browse', href: '/wiki/browse' as Route, label: t.wikiBrowse, icon: '☰', locked: false },
+    { key: 'chat', href: chatHref, label: t.wikiChat, icon: '✦', locked: !authenticated },
   ];
 
-  const isActive = (href: string): boolean =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href);
+  const isActive = (key: string, href: string): boolean =>
+    key === 'chat' ? pathname === AUTHENTICATED_HOME : pathname.startsWith(href);
 
   return (
     <nav
@@ -31,18 +41,26 @@ export function TabBar({ lang }: { lang: Lang }) {
     >
       <ul className="mx-auto flex max-w-3xl">
         {tabs.map((tab) => (
-          <li key={tab.href} className="flex-1">
+          <li key={tab.key} className="flex-1">
             <Link
               href={tab.href}
-              aria-current={isActive(tab.href) ? 'page' : undefined}
+              aria-current={isActive(tab.key, tab.href) ? 'page' : undefined}
               className={`flex flex-col items-center gap-0.5 py-2.5 text-[0.7rem] transition-colors sm:flex-row sm:justify-center sm:gap-2 sm:text-sm ${
-                isActive(tab.href) ? 'text-forge' : 'text-ash hover:text-birch'
+                isActive(tab.key, tab.href) ? 'text-forge' : 'text-ash hover:text-birch'
               }`}
             >
               <span aria-hidden="true" className="text-base leading-none">
                 {tab.icon}
               </span>
-              {tab.label}
+              <span className="flex items-center gap-1">
+                {tab.label}
+                {tab.locked ? (
+                  <span aria-hidden="true" className="text-[0.65rem] opacity-70">
+                    🔒
+                  </span>
+                ) : null}
+              </span>
+              {tab.locked ? <span className="sr-only">{t.wikiChatLocked}</span> : null}
             </Link>
           </li>
         ))}
