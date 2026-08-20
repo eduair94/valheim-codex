@@ -1,0 +1,6 @@
+# Normalise line endings: the repo stores LF, checkouts get the platform default.
+* text=auto eol=lf
+
+# Binary assets must not be touched.
+*.png binary
+*.onnx binary

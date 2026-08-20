@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+      # The suite boots PGlite in memory, so it needs no database service and
+      # no API key: embeddings are stubbed with a deterministic fake.
+      - run: pnpm test
+
+      - name: Build
+        env:
+          PGLITE_DATA_DIR: .data/ci
+        run: pnpm build
+
+      # Retrieval quality, measured without the LLM rewrite: no API key, no
+      # quota, and it exercises the deterministic path the app falls back to.
+      # Skipped when there is no index to measure against.
+      - name: Retrieval quality
+        if: ${{ secrets.EVAL_DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+          EMBEDDING_PROVIDER: local
+        run: pnpm eval --no-rewrite

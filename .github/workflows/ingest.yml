@@ -1,0 +1,60 @@
+name: Ingest wiki
+
+# The ingest runs here rather than in a Vercel function: a full pass takes
+# minutes and serverless caps out at 60–300 seconds. Actions has no such limit,
+# leaves a log, and is free for this workload.
+on:
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: Label recorded on the ingest_runs row
+        required: false
+        default: manual
+      full:
+        description: Re-parse every page instead of only changed revisions
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    # Weekly, Mondays 04:00 UTC. Incremental, so an ordinary week is cheap.
+    - cron: '0 4 * * 1'
+
+concurrency:
+  # Two ingests writing the same database would fight over every page.
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run ingest
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          WIKI_CONTACT: ${{ secrets.WIKI_CONTACT }}
+        run: |
+          pnpm ingest \
+            --trigger "${{ inputs.trigger || 'schedule' }}" \
+            ${{ inputs.full && '--full' || '' }}
+
+      - name: Check retrieval quality
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+        run: pnpm eval

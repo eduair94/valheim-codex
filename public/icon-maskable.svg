@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Valheim Codex">
+  <rect width="512" height="512" fill="#1D2216"/>
+  <!-- Maskable: the glyph sits inside the 80% safe area so a circular mask
+       cannot clip it. -->
+  <g stroke="#D98A34" stroke-width="30" stroke-linecap="round" fill="none">
+    <path d="M198 146 V366"/>
+    <path d="M198 186 L314 152"/>
+    <path d="M198 258 L300 227"/>
+  </g>
+</svg>

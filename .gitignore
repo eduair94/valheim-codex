@@ -1,0 +1,22 @@
+node_modules/
+.next/
+out/
+build/
+.env
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+playwright-report/
+test-results/
+.data/
+.vercel
+.DS_Store
+tests/e2e/.auth/
+
+# Local run artefacts
+server.log
+ingest.log
+tmp-*.ts
+tmp-*.mjs
+tmp-*.cjs

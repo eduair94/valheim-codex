@@ -1,0 +1,30 @@
+{"q": "¿Qué materiales necesito para forjar una espada de hierro?", "lang": "es", "expect": ["Iron Sword"]}
+{"q": "What do I need to craft an iron sword?", "lang": "en", "expect": ["Iron Sword"]}
+{"q": "¿Cómo invoco a Bonemass?", "lang": "es", "expect": ["Bonemass"]}
+{"q": "How do I summon Yagluth?", "lang": "en", "expect": ["Yagluth"]}
+{"q": "¿Dónde encuentro núcleos de surtling?", "lang": "es", "expect": ["Surtling core"]}
+{"q": "Where do surtling cores come from?", "lang": "en", "expect": ["Surtling core"]}
+{"q": "¿Qué dropea el Deathsquito?", "lang": "es", "expect": ["Deathsquito"]}
+{"q": "¿Cómo se hace el hierro?", "lang": "es", "expect": ["Iron", "Smelter"]}
+{"q": "What does a smelter need to run?", "lang": "en", "expect": ["Smelter", "Coal"]}
+{"q": "¿Qué bioma tiene a los Fulings?", "lang": "es", "expect": ["Fuling", "Plains"]}
+{"q": "How much damage does a Blackmetal sword do?", "lang": "en", "expect": ["Black Metal Sword"]}
+{"q": "¿Para qué sirve el portal?", "lang": "es", "expect": ["Portal"]}
+{"q": "¿Cómo domestico un jabalí?", "lang": "es", "expect": ["Boar", "Taming"]}
+{"q": "What is the Elder weak to?", "lang": "en", "expect": ["The Elder", "Elder"]}
+{"q": "¿Cómo consigo miel?", "lang": "es", "expect": ["Honey", "Beehive"]}
+{"q": "Where do I find silver?", "lang": "en", "expect": ["Silver", "Silver ore", "Mountain"]}
+{"q": "¿Qué hace la comida en Valheim?", "lang": "es", "expect": ["Food"]}
+{"q": "How do I build a longship?", "lang": "en", "expect": ["Longship"]}
+{"q": "¿Qué es el Mistlands?", "lang": "es", "expect": ["Mistlands"]}
+{"q": "What does Eikthyr drop?", "lang": "en", "expect": ["Eikthyr"]}
+{"q": "¿Cómo hago carbón?", "lang": "es", "expect": ["Coal", "Charcoal kiln"]}
+{"q": "What is a Dvergr?", "lang": "en", "expect": ["Dvergr (race)"]}
+{"q": "¿Cuánta armadura da la armadura de bronce?", "lang": "es", "expect": ["Bronze armor", "Bronze cuirass", "Bronze plate legs"]}
+{"q": "How do I get flax?", "lang": "en", "expect": ["Flax", "Plains"]}
+{"q": "¿Dónde está el Ashlands?", "lang": "es", "expect": ["Ashlands"]}
+{"q": "What is the workbench used for?", "lang": "en", "expect": ["Workbench"]}
+{"q": "¿Qué necesito para el arco de cazador?", "lang": "es", "expect": ["Huntsman bow"]}
+{"q": "How do I cure poison?", "lang": "en", "expect": ["Poison resistance mead", "Poison", "Mead"]}
+{"q": "¿Qué hace el trofeo de Moder?", "lang": "es", "expect": ["Moder"]}
+{"q": "What can I build with core wood?", "lang": "en", "expect": ["Corewood"]}

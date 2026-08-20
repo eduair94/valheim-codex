@@ -1,0 +1,230 @@
+@import 'tailwindcss';
+
+/*
+  Palette: a firelit camp, not a dark-mode default.
+  The ground is peat — dark olive-brown rather than neutral black — so the
+  cream text reads as birch bark and the single amber accent reads as forge
+  light. Every value here is warm-shifted on purpose; a neutral grey anywhere
+  in this palette flattens the whole thing.
+*/
+@theme {
+  --color-bog: #14170f;
+  --color-peat: #1d2216;
+  --color-moss: #2a3120;
+  --color-lichen: #3a4330;
+  --color-birch: #e8e2d0;
+  --color-ash: #9aa089;
+  --color-forge: #d98a34;
+  --color-forge-dim: #8a5720;
+  --color-blood: #a33b2a;
+
+  --font-display: var(--font-cinzel), Georgia, serif;
+  --font-body: var(--font-spectral), Georgia, serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bog);
+  color: var(--color-birch);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Carved inscriptional caps, used sparingly: app name and section labels. */
+.display {
+  font-family: var(--font-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ash);
+}
+
+/* Visible focus everywhere; the amber is the only ring in the system. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-forge);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--color-forge-dim);
+  color: var(--color-birch);
+}
+
+/* Thin, warm scrollbars so panels do not gain a cold grey edge. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-lichen) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-lichen);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/*
+  Citation marker: a chiselled chip.
+  Inline in the answer text it stays small and monospaced so a run of them
+  ([1][2]) reads as a set of marks rather than as prose.
+*/
+.rune-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35em;
+  height: 1.35em;
+  padding: 0 0.3em;
+  margin: 0 0.12em;
+  font-family: var(--font-mono);
+  font-size: 0.7em;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-forge);
+  background: color-mix(in srgb, var(--color-forge) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-forge) 34%, transparent);
+  border-radius: 3px;
+  vertical-align: 0.15em;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.rune-chip:hover,
+.rune-chip:focus-visible,
+.rune-chip[data-active='true'] {
+  background: color-mix(in srgb, var(--color-forge) 26%, transparent);
+  border-color: var(--color-forge);
+}
+
+/* The source row the hovered chip points at. */
+.source-row[data-active='true'] {
+  border-color: var(--color-forge);
+  background: color-mix(in srgb, var(--color-forge) 8%, transparent);
+}
+
+/*
+  Ember: the one ambient motion in the app.
+  It marks the seconds between sending a question and the first token, where
+  there is otherwise nothing to look at. Firelight is the subject's own
+  material, so the wait reads as part of the world rather than as a spinner.
+*/
+@keyframes ember {
+  0%, 100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.1);
+  }
+}
+.ember {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-forge);
+  animation: ember 1.4s ease-in-out infinite;
+}
+.ember:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.ember:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Answer prose: measured for reading, not for filling the pane. */
+.answer {
+  max-width: 68ch;
+}
+.answer p {
+  margin-bottom: 0.85rem;
+}
+.answer p:last-child {
+  margin-bottom: 0;
+}
+.answer ul,
+.answer ol {
+  margin: 0.5rem 0 0.85rem;
+  padding-left: 1.1rem;
+}
+.answer li {
+  margin-bottom: 0.2rem;
+  list-style: none;
+  position: relative;
+}
+.answer ul li::before {
+  content: '·';
+  position: absolute;
+  left: -0.9rem;
+  color: var(--color-forge);
+  font-weight: 700;
+}
+.answer ol {
+  counter-reset: item;
+}
+.answer ol li::before {
+  counter-increment: item;
+  content: counter(item) '.';
+  position: absolute;
+  left: -1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--color-forge);
+}
+/* Crafting quantities and stats line up when they are monospaced. */
+.answer strong {
+  font-weight: 600;
+  color: #f2ecda;
+}
+.answer code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--color-forge);
+}
