@@ -33,10 +33,12 @@
   "dependencies": {
     "@ai-sdk/google": "^4.0.47",
     "@ai-sdk/react": "^4.0.73",
+    "@ai-sdk/xai": "^4.0.42",
     "@electric-sql/pglite": "^0.5.5",
     "@electric-sql/pglite-pgvector": "^0.0.6",
     "@huggingface/transformers": "^4.2.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.70",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",

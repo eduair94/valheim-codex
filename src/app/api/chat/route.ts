@@ -19,8 +19,8 @@ import { messageText, type ValheimUIMessage } from '@/lib/chat-types';
 import { strings } from '@/lib/i18n/strings';
 import { buildContext, buildSystemPrompt, buildUserPrompt, noContextAnswer } from '@/lib/rag/prompt';
 import { retrieve } from '@/lib/rag/retrieve';
-import { gemini } from '@/lib/rag/gemini';
-import { ANSWER_MODEL } from '@/lib/rag/models';
+import { streamWithFallback } from '@/lib/rag/fallback';
+import { answerCandidates } from '@/lib/rag/provider';
 import { rewriteQueries } from '@/lib/rag/rewrite';
 
 export const runtime = 'nodejs';
@@ -111,21 +111,30 @@ export async function POST(request: Request): Promise<Response> {
         { role: 'user' as const, parts: [{ type: 'text' as const, text: buildUserPrompt(question, context) }] },
       ] as Omit<ValheimUIMessage, 'id'>[]);
 
-      const result = streamText({
-        model: gemini()(ANSWER_MODEL),
-        system: buildSystemPrompt(lang),
-        messages: modelMessages,
-        temperature: 0.2,
-        onFinish: async ({ text }) => {
-          await persistAssistant(conversationId, text, citations);
-        },
-      });
+      /*
+       * Grok first, Gemini behind it. A provider that is going to refuse —
+       * an unpaid account, an exhausted quota — does so before the first
+       * token, so `streamWithFallback` waits for that token before committing
+       * and the reader never sees a switch happen.
+       */
+      const { stream, candidate } = await streamWithFallback(answerCandidates(), (c) =>
+        streamText({
+          model: c.model,
+          system: buildSystemPrompt(lang),
+          messages: modelMessages,
+          temperature: 0.2,
+          onFinish: async ({ text }) => {
+            await persistAssistant(conversationId, text, citations);
+          },
+        }),
+      );
+      console.info(`[chat] answered by ${candidate.name}`);
 
       // `sendStart: false` because the surrounding stream already opened this
       // message to carry the citations. Letting the model stream announce its
       // own start makes the client render a second assistant message, so the
       // answer appears twice with the sources duplicated under each copy.
-      writer.merge(toUIMessageStream({ stream: result.stream, sendStart: false }));
+      writer.merge(toUIMessageStream({ stream, sendStart: false }));
     },
     onError: (error) => {
       console.error('[chat]', error);

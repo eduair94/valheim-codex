@@ -1,8 +1,8 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 
-import { gemini } from './gemini';
-import { REWRITE_MODEL } from './models';
+import { withFallback } from './fallback';
+import { rewriteCandidates } from './provider';
 
 const rewriteSchema = z.object({
   queries: z
@@ -51,16 +51,18 @@ export async function rewriteQueries(input: RewriteInput): Promise<string[]> {
     .join('\n');
 
   try {
-    const { object } = await generateObject({
-      model: gemini()(REWRITE_MODEL),
-      schema: rewriteSchema,
-      system: SYSTEM,
-      prompt: history
+    const { value: object } = await withFallback(rewriteCandidates(), (candidate) =>
+      generateObject({
+        model: candidate.model,
+        schema: rewriteSchema,
+        system: SYSTEM,
+        prompt: history
         ? `Conversation so far:\n${history}\n\nNew question: ${question}`
         : `Question: ${question}`,
-      // Rewriting is a mechanical transformation; sampling adds nothing.
-      temperature: 0,
-    });
+        // Rewriting is a mechanical transformation; sampling adds nothing.
+        temperature: 0,
+      }).then((r) => r.object),
+    );
 
     const queries = object.queries.map((q) => q.trim()).filter(Boolean);
     return queries.length > 0 ? queries : fallback(question);

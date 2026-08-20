@@ -1,4 +1,12 @@
 /**
+ * Model selection, per provider.
+ *
+ * Grok is tried first and Gemini second; see `provider.ts` for why there are
+ * two. Every id is overridable so a key with different access, or a taste for
+ * a larger model, needs no code change.
+ *
+ * ---
+ *
  * Gemini model selection.
  *
  * `gemini-2.5-flash` — the model this project was specified with — returns
@@ -27,3 +35,46 @@ export const ANSWER_MODEL = process.env.GEMINI_ANSWER_MODEL ?? 'gemini-2.5-flash
  * cheapest, fastest model is the right one even if the answer model is larger.
  */
 export const REWRITE_MODEL = process.env.GEMINI_REWRITE_MODEL ?? 'gemini-2.5-flash-lite';
+
+/*
+ * Grok.
+ *
+ * The non-reasoning variant on purpose. This is retrieval-augmented answering:
+ * the facts arrive in the prompt already, so the work is reading a supplied
+ * context and citing it, not deliberating. Reasoning variants spend seconds of
+ * latency on a question that does not need them — the same trap that made
+ * `gemini-3.6-flash` take 43 s above.
+ */
+
+/** Generates the grounded answer. */
+export const GROK_ANSWER_MODEL = process.env.GROK_ANSWER_MODEL ?? 'grok-4.20-non-reasoning';
+
+/** Rewrites a question into search queries. Mechanical, so the same fast model. */
+export const GROK_REWRITE_MODEL = process.env.GROK_REWRITE_MODEL ?? 'grok-4.20-non-reasoning';
+
+/*
+ * OpenRouter — one key, every model, priced per token.
+ *
+ * Deliberately pointed at a paid model rather than a free one. The free tier
+ * was measured and is not fit for this app:
+ *
+ *   openrouter/free              routes by availability, not capability — it
+ *                                answered once from a coding model and once
+ *                                from a content-safety classifier, which
+ *                                replied "User Safety: safe"
+ *   nemotron-3-nano-30b-a3b:free clean Spanish on a bare prompt, but leaks its
+ *                                chain of thought on a RAG-shaped one, even
+ *                                when told not to
+ *   glm-5.2:free, gemma-4:free   429 "temporarily rate-limited upstream"
+ *
+ * A wrong answer is recoverable; raw reasoning rendered as the answer is not
+ * something to ship. So this tier stays pointed at a real model: with no
+ * credit on the key it returns 402 and the chain simply moves on, and the day
+ * credit is added it becomes the strongest tier without a code change.
+ */
+
+/** Generates the grounded answer. */
+export const OPENROUTER_ANSWER_MODEL = process.env.OPENROUTER_ANSWER_MODEL ?? 'x-ai/grok-4.3';
+
+/** Rewrites a question into search queries. */
+export const OPENROUTER_REWRITE_MODEL = process.env.OPENROUTER_REWRITE_MODEL ?? 'x-ai/grok-4.3';
