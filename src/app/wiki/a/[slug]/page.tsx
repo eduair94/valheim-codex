@@ -39,6 +39,14 @@ export default async function ArticlePage({ params }: Params) {
         lang={lang}
       />
 
+      {/*
+       * Clears the floating ask button, which is fixed and would otherwise
+       * cover the last rows of the infobox for good. It hides while scrolling
+       * down, so the overlap is only visible once the reader stops — which is
+       * exactly when they are trying to read what is under it.
+       */}
+      <div aria-hidden="true" className="h-28 sm:h-16" />
+
       <AskButton title={article.title} lang={lang} />
     </>
   );

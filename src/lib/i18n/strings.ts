@@ -53,7 +53,8 @@ export const STRINGS = {
     profile: 'Perfil',
 
     errorGeneric: 'Algo falló. Probá de nuevo.',
-    errorRateLimited: 'Demasiadas preguntas seguidas para el plan gratuito de Gemini. Esperá un minuto y volvé a preguntar.',
+    errorRateLimited:
+      'Los modelos están al límite ahora mismo. Esperá unos minutos y volvé a preguntar — la wiki se puede consultar igual.',
     errorNetwork: 'No hay conexión con el servidor. Revisá tu red y volvé a intentar.',
     retry: 'Reintentar',
 
@@ -140,7 +141,8 @@ export const STRINGS = {
     profile: 'Profile',
 
     errorGeneric: 'Something broke. Try again.',
-    errorRateLimited: 'Too many questions in a row for the Gemini free tier. Wait a minute and ask again.',
+    errorRateLimited:
+      'Every model is at its limit right now. Wait a few minutes and ask again — the wiki still works.',
     errorNetwork: 'No connection to the server. Check your network and retry.',
     retry: 'Retry',
 

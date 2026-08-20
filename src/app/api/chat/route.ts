@@ -19,7 +19,7 @@ import { messageText, type ValheimUIMessage } from '@/lib/chat-types';
 import { strings } from '@/lib/i18n/strings';
 import { buildContext, buildSystemPrompt, buildUserPrompt, noContextAnswer } from '@/lib/rag/prompt';
 import { retrieve } from '@/lib/rag/retrieve';
-import { streamWithFallback } from '@/lib/rag/fallback';
+import { AllProvidersFailedError, streamWithFallback } from '@/lib/rag/fallback';
 import { answerCandidates } from '@/lib/rag/provider';
 import { getLeadImages } from '@/lib/db/wiki-repo';
 import { rewriteQueries } from '@/lib/rag/rewrite';
@@ -156,13 +156,17 @@ export async function POST(request: Request): Promise<Response> {
       console.error('[chat]', error);
 
       /*
-       * A rate limit is the most likely failure on a free-tier key, and it is
-       * the one the reader can act on: waiting fixes it. Saying so beats a
-       * generic "something broke" that invites a pointless retry loop.
+       * Every provider refusing is the failure this deployment actually has,
+       * and it is one the reader can act on: the free tiers come back. Saying
+       * so — and pointing at the reader, which needs no model and no password
+       * — beats a generic "something broke" that invites a retry loop against
+       * five providers that are all still out of budget.
        */
+      if (error instanceof AllProvidersFailedError) return strings(lang).errorRateLimited;
+
       const message = error instanceof Error ? error.message : String(error);
       const rateLimited =
-        /429|RESOURCE_EXHAUSTED|quota/i.test(message) ||
+        /429|RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(message) ||
         (typeof error === 'object' && error !== null && 'statusCode' in error &&
           (error as { statusCode?: number }).statusCode === 429);
 
