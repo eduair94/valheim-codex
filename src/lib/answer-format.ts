@@ -41,9 +41,29 @@ function tableCells(line: string): string[] {
   return inner.split('|').map((cell) => cell.trim());
 }
 
+/*
+ * Citation brackets, as models actually write them.
+ *
+ * The prompt asks for `[1]` and `gpt-oss` answers with `【1】` — the CJK
+ * lenticular brackets — often enough that treating it as the model
+ * misbehaving would mean shipping answers whose citations render as literal
+ * punctuation instead of chips. Normalising costs one pass over the string
+ * and makes the parser indifferent to which bracket the model reached for.
+ */
+const BRACKET_VARIANTS: [RegExp, string][] = [
+  [/【\s*(\d+)\s*】/g, '[$1]'],
+  [/［\s*(\d+)\s*］/g, '[$1]'],
+];
+
+function normaliseBrackets(text: string): string {
+  return BRACKET_VARIANTS.reduce(
+    (out, [pattern, replacement]) => out.replace(pattern, replacement),
+    text,
+  );
+}
 /** Splits an answer into paragraphs and lists. */
 export function parseAnswer(text: string): AnswerBlock[] {
-  const lines = text.split('\n');
+  const lines = normaliseBrackets(text).split('\n');
   const blocks: AnswerBlock[] = [];
   let paragraph: string[] = [];
   let bullets: string[] = [];
@@ -126,7 +146,7 @@ const INLINE_PATTERN = /(\*\*[^*]+\*\*|`[^`]+`|\[\d+\])/g;
 export function parseInline(text: string): InlineSegment[] {
   const segments: InlineSegment[] = [];
 
-  for (const part of text.split(INLINE_PATTERN)) {
+  for (const part of normaliseBrackets(text).split(INLINE_PATTERN)) {
     if (part === '') continue;
 
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {

@@ -49,12 +49,24 @@ Tables:
 - Cite in the cell the fact came from, or once in the line introducing the table.
 
 Images:
-- To show a picture, write [img:N] alone on its own line, where N is one of the
-  citation numbers above. Nothing else — never write a URL, never write markdown
-  image syntax. The address is looked up from the source you cited.
-- One image at most, and only when seeing the thing helps: what a creature or
-  item looks like. Do not illustrate a recipe or a number.
-- Put it right after the sentence it illustrates.`;
+- Every numbered source has a picture available. Showing it is not a
+  departure from the sources — it IS the source, and the grounding rules
+  above permit it.
+- To show one, write [img:N] alone on its own line, where N is one of the
+  citation numbers. Nothing else: never a URL, never markdown image syntax.
+  The address is looked up from the source you cited.
+- If the reader asks what something looks like, or the answer is mostly about
+  one creature, item or building, include its picture. That is the question
+  a picture answers and prose cannot.
+- One image at most, and never for a recipe or a number.
+- Put it right after the sentence it illustrates.
+- Never say whether a picture exists. Write the marker and move on; if the
+  source has none the marker renders nothing, and a sentence apologising for a
+  missing image is worse than no image.
+
+Markers:
+- Write citation and image markers with plain square brackets: [1], [img:1].
+  Not lenticular brackets, not full-width ones, not parentheses.`;
 }
 
 /**

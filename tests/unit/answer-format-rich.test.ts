@@ -92,3 +92,38 @@ describe('mixed answers', () => {
     expect(blocks.map((b) => b.type)).toEqual(['paragraph', 'bullets', 'table', 'image']);
   });
 });
+
+describe('bracket variants', () => {
+  /*
+   * Not hypothetical: gpt-oss-120b answered a real question on this corpus
+   * with 【1】 rather than [1]. Left alone, every citation in that answer
+   * renders as literal punctuation instead of a chip that links anywhere.
+   */
+  it('reads CJK lenticular brackets as citations', () => {
+    const blocks = parseAnswer('Necesitás 20 de hierro【3】.');
+    const paragraph = blocks[0];
+    if (paragraph?.type !== 'paragraph') throw new Error('expected a paragraph');
+    expect(paragraph.segments).toContainEqual({ type: 'citation', n: 3 });
+  });
+
+  it('reads full-width square brackets as citations', () => {
+    const blocks = parseAnswer('Bonemass vive en el pantano［5］.');
+    const paragraph = blocks[0];
+    if (paragraph?.type !== 'paragraph') throw new Error('expected a paragraph');
+    expect(paragraph.segments).toContainEqual({ type: 'citation', n: 5 });
+  });
+
+  it('normalises them inside table cells too', () => {
+    const blocks = parseAnswer(['| Nivel | Hierro |', '| --- | --- |', '| 1 | 20【2】 |'].join('\n'));
+    const table = blocks[0];
+    if (table?.type !== 'table') throw new Error('expected a table');
+    expect(table.rows[0]?.[1]).toContainEqual({ type: 'citation', n: 2 });
+  });
+
+  it('leaves ordinary brackets alone', () => {
+    const blocks = parseAnswer('Necesitás 20 de hierro [3].');
+    const paragraph = blocks[0];
+    if (paragraph?.type !== 'paragraph') throw new Error('expected a paragraph');
+    expect(paragraph.segments).toContainEqual({ type: 'citation', n: 3 });
+  });
+});

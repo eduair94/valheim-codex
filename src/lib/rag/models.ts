@@ -83,14 +83,19 @@ export const OPENROUTER_REWRITE_MODEL = process.env.OPENROUTER_REWRITE_MODEL ?? 
  * Groq — the free tier worth having alongside Gemini.
  *
  * Not to be confused with Grok, which is xAI's model; Groq is a hardware
- * company that serves open-weight models on its own inference chips. That is
- * the whole appeal here: it is genuinely fast, its free tier is measured in
- * thousands of requests a day rather than twenty a minute, and it honours JSON
- * mode, which the rewrite needs and the free models on OpenRouter did not.
+ * company that serves open-weight models on its own inference chips.
  *
- * Llama 3.3 70B rather than a smaller one: this answers in Spanish from
- * English sources, and the small models tested for that job either translated
- * badly or ignored the instruction to cite.
+ * Measured on a free account: 200,000 tokens per day for this model, which at
+ * roughly 3–4k tokens a question is fifty-odd questions. That is a different
+ * shape of limit from Gemini's twenty requests a minute rather than a bigger
+ * one — Gemini refuses in bursts and recovers within the minute, Groq is
+ * steady until the day's budget is gone. Having both means the bursty limit
+ * and the daily one rarely bite at the same moment.
+ *
+ * `gpt-oss-120b` because it was the one that worked: measured on this
+ * project's prompt it answered in Spanish, cited correctly and honoured a
+ * strict JSON schema, in about 900 ms. `qwen3.6-27b` on the same account
+ * leaked its chain of thought into the reply.
  */
 
 /** Generates the grounded answer. */
