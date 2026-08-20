@@ -1,6 +1,6 @@
 import './_env';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { hashPassword } from '../src/lib/auth/password';
 
 /**
