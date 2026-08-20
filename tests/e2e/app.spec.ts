@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { skipIfModelQuotaExhausted } from './helpers';
+import { skipIfGenerationFailed, skipIfModelQuotaExhausted } from './helpers';
 
 /**
  * These tests run with the session saved by global setup, so they open the app
@@ -44,6 +44,9 @@ test.describe('chat', () => {
     // The answer is grounded: it names the material the recipe calls for.
     const article = page.locator('article').last();
     await expect(article).toContainText(/hierro|iron/i, { timeout: 60_000 });
+
+    // Retrieval is done, so anything failing from here is the model call.
+    await skipIfGenerationFailed(page);
 
     // And it carries at least one citation marker tied to a source.
     await expect(article.locator('.rune-chip').first()).toBeVisible();
