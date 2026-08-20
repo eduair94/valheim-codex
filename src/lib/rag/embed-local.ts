@@ -36,7 +36,18 @@ let extractorPromise: Promise<Extractor> | null = null;
  */
 async function getExtractor(): Promise<Extractor> {
   extractorPromise ??= (async () => {
-    const { pipeline } = await import('@huggingface/transformers');
+    const { pipeline, env } = await import('@huggingface/transformers');
+
+    /*
+     * By default the model is cached inside the installed package directory,
+     * whose path contains the package version. A container image that copies
+     * that path breaks silently on the next dependency bump — the build still
+     * succeeds and the running app re-downloads 283 MB on its first question.
+     * `MODEL_CACHE_DIR` pins it somewhere the image controls.
+     */
+    const cacheDir = process.env.MODEL_CACHE_DIR;
+    if (cacheDir) env.cacheDir = cacheDir;
+
     const extractor = await pipeline('feature-extraction', MODEL_ID, {
       dtype: 'q8',
     });

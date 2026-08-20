@@ -1,0 +1,28 @@
+# Everything the image builds for itself, plus everything that must never be
+# baked into a published artefact.
+
+node_modules
+.next
+.git
+.github
+
+# Local databases and their backups: gigabytes, and the image reads from Neon.
+.data
+
+# Secrets. The image receives them as runtime env, never as layers.
+.env
+.env*.local
+
+# Development output.
+screenshots
+test-results
+playwright-report
+coverage
+server.log
+ingest.log
+tmp-*
+
+# Not needed to run the app.
+tests
+docs
+README.md

@@ -1,0 +1,45 @@
+# Fly.io deployment.
+#
+# One machine, always running: the embedding model takes ~1.7 s to load, and
+# scaling to zero would put that on the first question of every session. For an
+# app you consult mid-game, a warm machine is the point.
+
+app = "valheim-codex"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  # The model is in the image; no API cost and no per-day quota for retrieval.
+  EMBEDDING_PROVIDER = "local"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    # The model is single-threaded on a shared CPU; queueing beyond this makes
+    # every request slower rather than serving more of them.
+    soft_limit = 20
+    hard_limit = 40
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "45s"
+  method = "GET"
+  path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # Measured: 740 MB for the loaded model, ~150 MB for the Next server. 1 GB
+  # leaves no headroom and meets the OOM killer under load.
+  memory = "2gb"
+  cpus = 1
