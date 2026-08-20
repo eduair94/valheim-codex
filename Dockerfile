@@ -76,16 +76,16 @@ COPY --from=builder  --chown=nextjs:nodejs /app/package.json ./package.json
 # Migrations travel with the image so a deploy can apply them if needed.
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
-# The model cache is not a dependency and is not installed by the prod install;
-# it comes from the builder, where prefetch put it.
-COPY --from=builder --chown=nextjs:nodejs \
-  /app/node_modules/.pnpm/@huggingface+transformers@4.2.0/node_modules/@huggingface/transformers/.cache \
-  ./node_modules/.pnpm/@huggingface+transformers@4.2.0/node_modules/@huggingface/transformers/.cache
+# The model cache is not a dependency and the production install does not create
+# it; it comes from the builder, where prefetch put it. `MODEL_CACHE_DIR` is why
+# this path is a plain directory rather than one buried under the package
+# manager's store with the dependency version in it.
+COPY --from=builder --chown=nextjs:nodejs /app/.model-cache ./.model-cache
 
 # Proves the model loads from this exact file set, on this exact platform,
 # before the image is considered good. A build failure here is far cheaper than
 # a container that starts cleanly and fails on the first question.
-COPY --from=builder --chown=nextjs:nodejs /app/scripts/verify-standalone.mjs ./verify.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/verify-image.mjs ./verify.mjs
 RUN node verify.mjs && rm verify.mjs
 
 USER nextjs
