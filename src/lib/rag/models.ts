@@ -94,7 +94,21 @@ export const OPENROUTER_REWRITE_MODEL = process.env.OPENROUTER_REWRITE_MODEL ?? 
  */
 
 /** Generates the grounded answer. */
-export const GROQ_ANSWER_MODEL = process.env.GROQ_ANSWER_MODEL ?? 'llama-3.3-70b-versatile';
+export const GROQ_ANSWER_MODEL = process.env.GROQ_ANSWER_MODEL ?? 'openai/gpt-oss-120b';
 
 /** Rewrites a question into search queries. */
-export const GROQ_REWRITE_MODEL = process.env.GROQ_REWRITE_MODEL ?? 'llama-3.3-70b-versatile';
+export const GROQ_REWRITE_MODEL = process.env.GROQ_REWRITE_MODEL ?? 'openai/gpt-oss-120b';
+
+/*
+ * Cerebras — the same open model on different silicon.
+ *
+ * Serves `gpt-oss-120b` too, which is what makes it worth having: if Groq is
+ * saturated the chain reaches the identical model elsewhere, so the answer
+ * does not change character when the provider does. Free tier, like Groq.
+ */
+
+/** Generates the grounded answer. */
+export const CEREBRAS_ANSWER_MODEL = process.env.CEREBRAS_ANSWER_MODEL ?? 'gpt-oss-120b';
+
+/** Rewrites a question into search queries. */
+export const CEREBRAS_REWRITE_MODEL = process.env.CEREBRAS_REWRITE_MODEL ?? 'gpt-oss-120b';

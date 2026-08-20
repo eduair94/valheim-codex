@@ -51,9 +51,10 @@ export async function rewriteQueries(input: RewriteInput): Promise<string[]> {
     .join('\n');
 
   try {
-    const { value: object } = await withFallback(rewriteCandidates(), (candidate) =>
+    const { value: object } = await withFallback(rewriteCandidates(), (candidate, attempt) =>
       generateObject({
         model: candidate.model,
+        maxRetries: attempt.maxRetries,
         schema: rewriteSchema,
         system: SYSTEM,
         prompt: history

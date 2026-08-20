@@ -1,4 +1,5 @@
 import type { TextStreamPart, ToolSet } from 'ai';
+import { recordFailure, recordSuccess } from './circuit';
 import type { Candidate } from './provider';
 
 /**
@@ -24,17 +25,36 @@ export class AllProvidersFailedError extends Error {
   }
 }
 
+/**
+ * How hard to try one provider before moving to the next.
+ *
+ * Zero for every provider that has another behind it. The SDK's default is
+ * three attempts with exponential backoff, which is right when there is
+ * nowhere else to go and wrong here: a rate-limited Gemini spent six seconds
+ * failing three times while four other providers sat idle. The last provider
+ * keeps its retries, because at that point backoff is the only option left.
+ */
+function attemptsFor(index: number, total: number): number {
+  return index === total - 1 ? 2 : 0;
+}
+
+/** Passed to the caller so it can hand the budget to the SDK. */
+export type Attempt = { readonly maxRetries: number };
+
 /** For a non-streaming call — the query rewrite. */
 export async function withFallback<T>(
   list: Candidate[],
-  run: (candidate: Candidate) => Promise<T>,
+  run: (candidate: Candidate, attempt: Attempt) => Promise<T>,
 ): Promise<{ value: T; candidate: Candidate }> {
   const failures: { name: string; error: unknown }[] = [];
 
-  for (const candidate of list) {
+  for (const [index, candidate] of list.entries()) {
     try {
-      return { value: await run(candidate), candidate };
+      const value = await run(candidate, { maxRetries: attemptsFor(index, list.length) });
+      recordSuccess(candidate.name);
+      return { value, candidate };
     } catch (error) {
+      recordFailure(candidate.name, error);
       failures.push({ name: candidate.name, error });
       console.warn(`[model] ${candidate.name} failed, trying the next provider:`, error);
     }
@@ -99,15 +119,18 @@ export async function streamWithFallback(
   // Structural, not `StreamTextResult`: this needs the stream and nothing
   // else, and naming the SDK's result type would drag three generic
   // parameters through a module that has no opinion about any of them.
-  build: (candidate: Candidate) => { readonly stream: ReadableStream<Part> },
+  build: (candidate: Candidate, attempt: Attempt) => { readonly stream: ReadableStream<Part> },
 ): Promise<{ stream: ReadableStream<Part>; candidate: Candidate }> {
   const failures: { name: string; error: unknown }[] = [];
 
-  for (const candidate of list) {
+  for (const [index, candidate] of list.entries()) {
     try {
-      const stream = await proveStream(build(candidate).stream);
+      const built = build(candidate, { maxRetries: attemptsFor(index, list.length) });
+      const stream = await proveStream(built.stream);
+      recordSuccess(candidate.name);
       return { stream, candidate };
     } catch (error) {
+      recordFailure(candidate.name, error);
       failures.push({ name: candidate.name, error });
       console.warn(`[model] ${candidate.name} failed before streaming, trying the next:`, error);
     }

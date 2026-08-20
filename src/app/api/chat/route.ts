@@ -117,9 +117,10 @@ export async function POST(request: Request): Promise<Response> {
        * token, so `streamWithFallback` waits for that token before committing
        * and the reader never sees a switch happen.
        */
-      const { stream, candidate } = await streamWithFallback(answerCandidates(), (c) =>
+      const { stream, candidate } = await streamWithFallback(answerCandidates(), (c, attempt) =>
         streamText({
           model: c.model,
+          maxRetries: attempt.maxRetries,
           system: buildSystemPrompt(lang),
           messages: modelMessages,
           temperature: 0.2,
