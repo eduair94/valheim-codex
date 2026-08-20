@@ -321,3 +321,106 @@ body {
   border: 1px solid var(--color-lichen);
   border-radius: 3px;
 }
+
+/*
+  Wide tables become cards on a phone.
+
+  A comparison of ten biomes across five columns cannot be made to fit 390px,
+  and the usual answer — let it scroll sideways — asks the reader to hold the
+  first column in their head while dragging the rest into view. Below `sm` each
+  row becomes a card and each cell becomes a labelled line, which is the same
+  label-left / value-right shape the article infobox already uses, so the whole
+  app has one way of presenting a named value.
+
+  One semantic table in the markup, restyled. Duplicating it as separate mobile
+  and desktop trees would mean two things to keep in step and two things for a
+  screen reader to walk.
+
+  Cells carry `data-label` with their column's heading; that attribute is what
+  makes the label appear once the header row is gone.
+*/
+@media (max-width: 639px) {
+  .stack-table thead {
+    /* `display: none` would drop it from the accessibility tree along with the
+       layout; the labels are recreated from `data-label` instead. */
+    display: none;
+  }
+
+  .stack-table,
+  .stack-table tbody,
+  .stack-table tr,
+  .stack-table th,
+  .stack-table td {
+    display: block;
+    width: auto;
+  }
+
+  .stack-table tr {
+    margin-bottom: 0.6rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--color-peat) 70%, transparent);
+    overflow: hidden;
+  }
+  .stack-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  /* The row's own heading is the card's title. */
+  .stack-table tbody th {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--color-moss);
+    background: color-mix(in srgb, var(--color-moss) 45%, transparent);
+    font-weight: 600;
+    color: var(--color-birch);
+    white-space: normal;
+  }
+
+  .stack-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(6rem, 40%) 1fr;
+    gap: 0.75rem;
+    align-items: baseline;
+    padding: 0.5rem 0.75rem;
+    white-space: normal;
+    text-align: left;
+  }
+  .stack-table tbody td + td {
+    border-top: 1px solid color-mix(in srgb, var(--color-moss) 70%, transparent);
+  }
+  .stack-table tbody td::before {
+    content: attr(data-label);
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ash);
+  }
+  /* A cell with no column heading has nothing to label; keep the value only. */
+  .stack-table tbody td:not([data-label])::before,
+  .stack-table tbody td[data-label='']::before {
+    content: none;
+  }
+  .stack-table tbody td:not([data-label]),
+  .stack-table tbody td[data-label=''] {
+    display: block;
+  }
+
+  /* The wrapper no longer has anything to scroll. */
+  .stack-scroller {
+    overflow-x: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /*
+   * `.answer-table table` sets `min-width: max-content` so cells keep their
+   * content on a desktop. Written as `table.stack-table` to match that
+   * selector's specificity — a bare `.stack-table` would lose and every card
+   * would still be as wide as its longest row.
+   */
+  table.stack-table {
+    min-width: 0;
+    font-size: 0.875rem;
+  }
+}

@@ -185,9 +185,9 @@ function CompareGrid({ table, lang }: { table: CompareTable; lang: Lang }) {
       tabIndex={0}
       role="region"
       aria-label={t.wikiCompare ?? 'Comparación'}
-      className="overflow-x-auto rounded-md border border-moss"
+      className="stack-scroller overflow-x-auto rounded-md border border-moss"
     >
-      <table className="w-full border-collapse text-left text-[0.8rem]">
+      <table className="stack-table w-full border-collapse text-left text-[0.8rem]">
         <thead>
           <tr className="bg-peat">
             <th
@@ -224,8 +224,25 @@ function CompareGrid({ table, lang }: { table: CompareTable; lang: Lang }) {
                   className="flex items-center gap-2 text-birch hover:text-forge"
                 >
                   {row.icon ? (
+                    /*
+                     * Wider than tall and `contain`, because this set mixes
+                     * square item sprites with landscape biome screenshots.
+                     * A 20px square turned every biome into a grey sliver.
+                     */
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={row.icon} alt="" width={20} height={20} loading="lazy" className="h-5 w-5 object-contain" />
+                    <img
+                      src={row.icon}
+                      alt=""
+                      width={40}
+                      height={28}
+                      loading="lazy"
+                      onError={(e) => {
+                        // Fandom's CDN 404s intermittently. An absent icon
+                        // reads fine; a broken-image glyph does not.
+                        e.currentTarget.style.display = 'none';
+                      }}
+                      className="h-7 w-10 shrink-0 rounded-sm object-contain"
+                    />
                   ) : null}
                   {row.title}
                 </Link>
@@ -233,6 +250,8 @@ function CompareGrid({ table, lang }: { table: CompareTable; lang: Lang }) {
               {table.columns.map((column) => (
                 <td
                   key={column}
+                  // Becomes the label once the header row is gone on a phone.
+                  data-label={column}
                   className="whitespace-nowrap border-b border-moss/50 px-3 py-2 font-mono text-birch/90"
                 >
                   {row.values[column] ?? '—'}

@@ -57,8 +57,8 @@ export function Answer({
         }
         if (block.type === 'table') {
           return (
-            <div key={i} className="answer-table" role="region" aria-label="Tabla" tabIndex={0}>
-              <table>
+            <div key={i} className="answer-table stack-scroller" role="region" aria-label="Tabla" tabIndex={0}>
+              <table className="stack-table">
                 <thead>
                   <tr>
                     {block.header.map((cell, j) => (
@@ -77,7 +77,11 @@ export function Answer({
                             {inline(cell)}
                           </th>
                         ) : (
-                          <td key={k}>{inline(cell)}</td>
+                          // Names its column, which is what labels the value
+                          // once the table stacks into cards on a phone.
+                          <td key={k} data-label={plainText(block.header[k] ?? [])}>
+                            {inline(cell)}
+                          </td>
                         ),
                       )}
                     </tr>
@@ -106,6 +110,14 @@ export function Answer({
       })}
     </div>
   );
+}
+
+/** A header cell as plain text, for the `data-label` the stacked view shows. */
+function plainText(segments: InlineSegment[]): string {
+  return segments
+    .map((segment) => (segment.type === 'citation' ? '' : segment.text))
+    .join('')
+    .trim();
 }
 
 function Inline({

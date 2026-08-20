@@ -272,9 +272,9 @@ function DataTable({ block }: { block: TableBlock }) {
         tabIndex={0}
         role="region"
         aria-label={block.caption ?? "Tabla"}
-        className="overflow-x-auto rounded-md border border-moss"
+        className="stack-scroller overflow-x-auto rounded-md border border-moss"
       >
-        <table className="w-full border-collapse text-left text-[0.8rem]">
+        <table className="stack-table w-full border-collapse text-left text-[0.8rem]">
           <thead>
             <tr className="bg-peat">
               {block.headers.map((h, i) => (
@@ -293,18 +293,30 @@ function DataTable({ block }: { block: TableBlock }) {
           <tbody>
             {block.rows.map((row, i) => (
               <tr key={i} className="odd:bg-peat/30">
-                {row.map((cell, j) => (
-                  <td
-                    key={j}
-                    className={`whitespace-nowrap border-b border-moss/50 px-3 py-2 text-birch/90 ${
-                      j === 0
-                        ? 'sticky left-0 z-10 bg-bog font-medium text-birch odd:bg-bog'
-                        : 'font-mono'
-                    }`}
-                  >
-                    {cell}
-                  </td>
-                ))}
+                {row.map((cell, j) =>
+                  /*
+                   * The first cell is what the row is about, so it is a row
+                   * header rather than data. That is also what turns it into
+                   * the card's title once the table stacks on a phone.
+                   */
+                  j === 0 ? (
+                    <th
+                      key={j}
+                      scope="row"
+                      className="sticky left-0 z-10 whitespace-nowrap border-b border-moss/50 bg-bog px-3 py-2 text-left font-medium text-birch odd:bg-bog"
+                    >
+                      {cell}
+                    </th>
+                  ) : (
+                    <td
+                      key={j}
+                      data-label={block.headers[j] ?? ''}
+                      className="whitespace-nowrap border-b border-moss/50 px-3 py-2 font-mono text-birch/90"
+                    >
+                      {cell}
+                    </td>
+                  ),
+                )}
               </tr>
             ))}
           </tbody>
