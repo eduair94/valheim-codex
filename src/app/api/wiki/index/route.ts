@@ -21,7 +21,11 @@ export async function GET(): Promise<Response> {
     { entries },
     {
       headers: {
-        'Cache-Control': 'private, max-age=3600, stale-while-revalidate=86400',
+        // `public`, not `private`: the list is identical for every visitor now
+        // that the reader needs no account, so the CDN in front can answer for
+        // it. `s-maxage` is the long one — a browser rechecks hourly, the edge
+        // holds it for a day, and it only changes on a re-index.
+        'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
       },
     },
   );

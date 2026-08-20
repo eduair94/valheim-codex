@@ -17,5 +17,15 @@ export async function GET(request: Request): Promise<Response> {
   if (!query.trim()) return Response.json({ hits: [] });
 
   const db = await getDb();
-  return Response.json({ hits: await searchContent(db, query) });
+  return Response.json(
+    { hits: await searchContent(db, query) },
+    {
+      // Now that this is open to the internet, repeated queries should be
+      // answered by the CDN rather than by the database. Popular terms are
+      // heavily repeated and the corpus only changes on a re-index, so a few
+      // minutes at the edge costs nothing in freshness and takes the load off
+      // a metered Postgres.
+      headers: { 'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600' },
+    },
+  );
 }

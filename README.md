@@ -189,15 +189,48 @@ hatch — useful to know before concluding the key is dead.
 
 ### Auth
 
+**The reader is public; the chat is not.** The reader shows an index built from
+a public wiki, so there is nothing behind a gate worth the cost of one. The
+chat is different: every question spends model tokens on the operator's
+account, and conversations are private to the profile that wrote them.
+
+| Public | Behind the password |
+| --- | --- |
+| `/wiki/**` — search, browse, articles, compare | `/` — the chat |
+| `/api/wiki/**` — title index, content search | `/api/chat`, `/api/conversations/**` |
+| `/login`, `/api/auth/**`, `/api/health` | `/api/ingest` |
+
+`src/lib/auth/access.ts` is the single list, read by both the proxy and the
+handlers, so a path cannot be public in the routing layer while its handler
+still refuses — or, far worse, the other way round. Prefixes match at a path
+boundary, so a route added later whose name merely begins with `/wiki` does
+not inherit its openness. `tests/unit/access-policy.test.ts` pins both halves.
+
+A signed-out visitor to `/` lands on the reader rather than a password prompt.
+The chat tab shows a lock and leads to the login form, so the password is
+announced rather than sprung after the click.
+
 One shared password, hashed with scrypt (N=2^16) from `node:crypto` — no native
 module to build on Windows or ship to Vercel. A successful login mints a
 30-day HS256 JWT in an httpOnly cookie. The profile name in that token is a
 label, not a credential; it only scopes conversation history.
 
-Middleware redirects unauthenticated browsers, but **every page and route
-handler verifies the session itself**. Next.js middleware has been bypassable
-through a forged internal header ([CVE-2025-29927](https://nvd.nist.gov/vuln/detail/CVE-2025-29927)),
+The proxy (`src/proxy.ts`, the Next.js 16 name for middleware) redirects
+unauthenticated browsers, but **every gated page and route handler verifies the
+session itself**. Next.js middleware has been bypassable through a forged
+internal header ([CVE-2025-29927](https://nvd.nist.gov/vuln/detail/CVE-2025-29927)),
 so it is a routing convenience, never the only gate.
+
+### Database privileges
+
+The app connects as `valheim_app`, which can read the index and write chat
+history, and nothing else — no DDL, and no write to `pages`, `chunks`,
+`articles` or `settings`. Those belong to the ingest, which runs from a trusted
+machine under the owner credential.
+
+The split means a compromise of the internet-facing container costs you the
+conversations, not the index. `pnpm db:app-role` creates or rotates the role and
+writes its connection string to a file without printing it.
 
 Login is rate limited to 10 attempts per IP per 15 minutes, counted in
 Postgres — an in-process counter would reset on every serverless cold start.
