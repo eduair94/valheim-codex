@@ -165,27 +165,55 @@ Two details in the full-text half carry a lot of the quality:
 
 ### Models
 
-`gemini-2.5-flash` returns `404: no longer available to new users` on keys
-created recently. The defaults are therefore:
+Five providers, tried in order, because the failure this app actually hits is
+not a bug — it is a provider being out of budget. Each is optional; one with no
+key configured is left out of the chain rather than tried and failed.
 
-| Role | Default | Override |
-| --- | --- | --- |
-| Answer | `gemini-2.5-flash-lite` | `GEMINI_ANSWER_MODEL` |
-| Query rewrite | `gemini-2.5-flash-lite` | `GEMINI_REWRITE_MODEL` |
+| Order | Provider | Default model | Free tier, measured |
+| --- | --- | --- | --- |
+| 1 | xAI | `grok-4.20-non-reasoning` | none — needs credit on the team |
+| 2 | Google | `gemini-2.5-flash-lite` | 20 requests/minute + a daily cap |
+| 3 | Groq | `openai/gpt-oss-120b` | 200,000 tokens/day, ~50 questions |
+| 4 | Cerebras | `gpt-oss-120b` | none on the account tested |
+| 5 | OpenRouter | `x-ai/grok-4.3` | unusable, see below |
 
-Measured on one short prompt each: `gemini-2.5-flash-lite` 0.5 s,
-`gemini-3-flash-preview` 1.5 s, `gemini-3.6-flash` 43 s (heavy default
-reasoning). One answer costs a rewrite call plus a generation call, so latency
-compounds and the lite model is the right default.
+Every id is overridable: `GROK_ANSWER_MODEL`, `GEMINI_ANSWER_MODEL`,
+`GROQ_ANSWER_MODEL`, `CEREBRAS_ANSWER_MODEL`, `OPENROUTER_ANSWER_MODEL`, and
+the matching `*_REWRITE_MODEL`.
 
-Free-tier limits are tight: **20 generate_content requests per minute** plus a
-daily cap. That is workable for a few people chatting and not workable for a
-benchmark loop, which is why `pnpm eval` paces itself and CI runs it with
-`--no-rewrite`.
+Gemini and Groq are worth having together because their limits have different
+shapes: Gemini refuses in bursts and recovers within the minute, Groq is steady
+until the day's budget is gone.
 
-**Quota is counted per model.** When one model is exhausted the others still
+**OpenRouter's free models were measured and rejected.** `openrouter/free`
+routes by availability rather than capability and answered once from a coding
+model and once from a content-safety classifier, which replied `User Safety:
+safe`. The one free model that produced clean Spanish leaked its chain of
+thought as soon as the prompt looked like RAG. A wrong answer is recoverable;
+raw reasoning rendered as the answer is not something to ship. Put credit on
+the key and it becomes the best tier instead of the worst.
+
+**Falling through is fast.** A provider that will refuse does so before the
+first token, and `streamWithFallback` waits for that token before committing to
+a stream, so the reader never sees a switch. Only the last provider in the
+chain gets retries — the SDK's default of three attempts with backoff had a
+rate-limited Gemini spending six seconds failing while four other providers sat
+idle. Falling through to a working provider went from 8452 ms to 839 ms.
+
+A provider that fails with 401, 402 or 403 is demoted for ten minutes, because
+an unfunded key answers the same way for weeks and would otherwise tax every
+question with a failed round trip. A 429 does not demote anything: waiting
+fixes it, and skipping the provider would give up quota it is about to get
+back.
+
+Latency, one short prompt each: `gemini-2.5-flash-lite` 0.5 s,
+`gpt-oss-120b` on Groq 0.9 s, `gemini-3-flash-preview` 1.5 s,
+`gemini-3.6-flash` 43 s (heavy default reasoning). One answer costs a rewrite
+call plus a generation call, so latency compounds.
+
+**Gemini quota is counted per model.** When one is exhausted the others still
 answer, so `GEMINI_ANSWER_MODEL=gemini-3-flash-preview` is a working escape
-hatch — useful to know before concluding the key is dead.
+hatch — useful to know before concluding a key is dead.
 
 ### Auth
 
@@ -309,6 +337,26 @@ The ingest deliberately does not run inside a Vercel function: a full pass takes
 minutes and serverless caps out at 60–300 seconds.
 
 ---
+
+### Rebuilding without taking the site down
+
+The image is built on the same machine that serves it, and an unconstrained
+build saturates that machine: on a 32-core host the load average reached 24,
+the Cloudflare connector was starved until it dropped its QUIC streams, and the
+tunnel answered 502 while the container itself was healthy and answering on
+`127.0.0.1:3210`. The container was never the problem — the CPU was.
+
+Cap the builder and the site stays up:
+
+```bash
+sudo systemctl set-property --runtime docker CPUQuota=1600%   # half the box
+docker compose up -d --build
+sudo systemctl set-property --runtime docker CPUQuota=         # restore
+```
+
+Verified: `/wiki` answered 200 throughout a capped build. The real fix is to
+build the image in CI and have the server pull it, which this repo does not do
+yet.
 
 ## Two traps worth knowing about
 
