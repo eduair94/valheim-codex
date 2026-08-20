@@ -1,3 +1,4 @@
+import { createGroq } from '@ai-sdk/groq';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createXai } from '@ai-sdk/xai';
 import type { LanguageModel } from 'ai';
@@ -6,6 +7,8 @@ import {
   ANSWER_MODEL,
   GROK_ANSWER_MODEL,
   GROK_REWRITE_MODEL,
+  GROQ_ANSWER_MODEL,
+  GROQ_REWRITE_MODEL,
   OPENROUTER_ANSWER_MODEL,
   OPENROUTER_REWRITE_MODEL,
   REWRITE_MODEL,
@@ -34,6 +37,7 @@ export type Candidate = {
 
 let cachedXai: ReturnType<typeof createXai> | null = null;
 let cachedOpenRouter: ReturnType<typeof createOpenRouter> | null = null;
+let cachedGroq: ReturnType<typeof createGroq> | null = null;
 
 function xai(): ReturnType<typeof createXai> | null {
   const apiKey = process.env.XAI_API_KEY;
@@ -49,7 +53,19 @@ function openrouter(): ReturnType<typeof createOpenRouter> | null {
   return cachedOpenRouter;
 }
 
-function candidates(grokModel: string, geminiModel: string, openRouterModel: string): Candidate[] {
+function groq(): ReturnType<typeof createGroq> | null {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  cachedGroq ??= createGroq({ apiKey });
+  return cachedGroq;
+}
+
+function candidates(
+  grokModel: string,
+  geminiModel: string,
+  groqModel: string,
+  openRouterModel: string,
+): Candidate[] {
   const list: Candidate[] = [];
 
   const x = xai();
@@ -57,13 +73,16 @@ function candidates(grokModel: string, geminiModel: string, openRouterModel: str
 
   if (resolveGeminiKey()) list.push({ name: `google/${geminiModel}`, model: gemini()(geminiModel) });
 
+  const g = groq();
+  if (g) list.push({ name: `groq/${groqModel}`, model: g(groqModel) });
+
   const or = openrouter();
   if (or) list.push({ name: `openrouter/${openRouterModel}`, model: or(openRouterModel) });
 
   if (list.length === 0) {
     throw new Error(
-      'No model provider configured. Set XAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY or ' +
-        'OPENROUTER_API_KEY in the environment.',
+      'No model provider configured. Set one of XAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, ' +
+        'GROQ_API_KEY or OPENROUTER_API_KEY in the environment.',
     );
   }
   return list;
@@ -71,16 +90,17 @@ function candidates(grokModel: string, geminiModel: string, openRouterModel: str
 
 /** Models that generate the grounded answer, best first. */
 export function answerCandidates(): Candidate[] {
-  return candidates(GROK_ANSWER_MODEL, ANSWER_MODEL, OPENROUTER_ANSWER_MODEL);
+  return candidates(GROK_ANSWER_MODEL, ANSWER_MODEL, GROQ_ANSWER_MODEL, OPENROUTER_ANSWER_MODEL);
 }
 
 /** Models that rewrite a question into search queries, best first. */
 export function rewriteCandidates(): Candidate[] {
-  return candidates(GROK_REWRITE_MODEL, REWRITE_MODEL, OPENROUTER_REWRITE_MODEL);
+  return candidates(GROK_REWRITE_MODEL, REWRITE_MODEL, GROQ_REWRITE_MODEL, OPENROUTER_REWRITE_MODEL);
 }
 
 /** Test-only: forget the memoised provider so an env change takes effect. */
 export function resetProviders(): void {
   cachedXai = null;
   cachedOpenRouter = null;
+  cachedGroq = null;
 }

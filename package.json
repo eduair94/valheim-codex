@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.47",
+    "@ai-sdk/groq": "^4.0.29",
     "@ai-sdk/react": "^4.0.73",
     "@ai-sdk/xai": "^4.0.42",
     "@electric-sql/pglite": "^0.5.5",

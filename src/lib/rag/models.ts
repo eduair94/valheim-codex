@@ -78,3 +78,23 @@ export const OPENROUTER_ANSWER_MODEL = process.env.OPENROUTER_ANSWER_MODEL ?? 'x
 
 /** Rewrites a question into search queries. */
 export const OPENROUTER_REWRITE_MODEL = process.env.OPENROUTER_REWRITE_MODEL ?? 'x-ai/grok-4.3';
+
+/*
+ * Groq — the free tier worth having alongside Gemini.
+ *
+ * Not to be confused with Grok, which is xAI's model; Groq is a hardware
+ * company that serves open-weight models on its own inference chips. That is
+ * the whole appeal here: it is genuinely fast, its free tier is measured in
+ * thousands of requests a day rather than twenty a minute, and it honours JSON
+ * mode, which the rewrite needs and the free models on OpenRouter did not.
+ *
+ * Llama 3.3 70B rather than a smaller one: this answers in Spanish from
+ * English sources, and the small models tested for that job either translated
+ * badly or ignored the instruction to cite.
+ */
+
+/** Generates the grounded answer. */
+export const GROQ_ANSWER_MODEL = process.env.GROQ_ANSWER_MODEL ?? 'llama-3.3-70b-versatile';
+
+/** Rewrites a question into search queries. */
+export const GROQ_REWRITE_MODEL = process.env.GROQ_REWRITE_MODEL ?? 'llama-3.3-70b-versatile';
