@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ingredientKey, isRecipeLabel, parseRecipe, recipeLookups } from '@/lib/wiki/recipe';
+import {
+  ingredientKey,
+  isRecipeLabel,
+  pairRecipeSources,
+  parseRecipe,
+  recipeLookups,
+} from '@/lib/wiki/recipe';
 
 /**
  * Every string here is one the wiki actually stores. A recipe that parses
@@ -92,5 +98,52 @@ describe('recipeLookups', () => {
     ];
 
     expect(recipeLookups(groups)).toEqual(['Wood', 'Bronze', 'Iron']);
+  });
+});
+
+describe('pairRecipeSources', () => {
+  const english = [
+    {
+      rows: [
+        { label: 'Durability', value: '250' },
+        { label: 'Crafting Materials', value: 'Finewood x10; Barber kit x1' },
+      ],
+    },
+  ];
+
+  it('pairs a translated recipe with the English it came from', () => {
+    // The barber station really did come back with one gloss dropped, and
+    // with it went that ingredient's icon and link.
+    const translated = [
+      {
+        rows: [
+          { label: 'Durabilidad', value: '250' },
+          {
+            label: 'Materiales de fabricación',
+            value: 'Madera fina (Finewood) x10; Kit de peluquería x1',
+          },
+        ],
+      },
+    ];
+
+    expect(pairRecipeSources(translated, english)).toEqual({
+      'Madera fina (Finewood) x10; Kit de peluquería x1': 'Finewood x10; Barber kit x1',
+    });
+  });
+
+  it('refuses to pair a recipe with a row that is not one', () => {
+    // A shifted infobox would otherwise hand a recipe somebody else's stat,
+    // and every ingredient would get the wrong picture.
+    const shifted = [
+      { rows: [{ label: 'Materiales de fabricación', value: 'Madera (Wood) x1' }] },
+    ];
+    const other = [{ rows: [{ label: 'Durability', value: '250' }] }];
+
+    expect(pairRecipeSources(shifted, other)).toEqual({});
+  });
+
+  it('ignores rows that are not recipes', () => {
+    const translated = [{ rows: [{ label: 'Durabilidad', value: '250' }] }];
+    expect(pairRecipeSources(translated, english)).toEqual({});
   });
 });

@@ -27,16 +27,33 @@ import { strings, type Lang } from '@/lib/i18n/strings';
  */
 export function Recipe({
   value,
+  sourceValue,
   targets,
   lang,
 }: {
   value: string;
+  /**
+   * The same recipe as the English article states it, when this one is a
+   * translation. Names are looked up from here rather than from the gloss the
+   * translation carries, because a dropped gloss should cost a parenthetical,
+   * not the picture and the link.
+   */
+  sourceValue?: string;
   /** Keyed by `ingredientKey`; resolved on the server in one query. */
   targets: Record<string, IngredientTarget>;
   lang: Lang;
 }) {
   const t = strings(lang);
   const ingredients = parseRecipe(value);
+
+  /*
+   * Positional, and only when both parses agree on how many ingredients there
+   * are. If they disagree the translation reshaped the row, and pairing by
+   * position would put one material's picture on another's name.
+   */
+  const source = sourceValue ? parseRecipe(sourceValue) : [];
+  const keyFor = (index: number, fallback: string): string =>
+    source.length === ingredients.length ? (source[index]?.lookup ?? fallback) : fallback;
 
   // Nothing parsed: show what the wiki said rather than an empty box.
   if (ingredients.length === 0) {
@@ -46,7 +63,7 @@ export function Recipe({
   return (
     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {ingredients.map((ingredient, i) => {
-        const target = targets[ingredientKey(ingredient.lookup)];
+        const target = targets[ingredientKey(keyFor(i, ingredient.lookup))];
 
         const inner = (
           <>

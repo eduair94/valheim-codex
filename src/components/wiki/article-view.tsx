@@ -29,6 +29,7 @@ export function ArticleView({
   doc,
   lang,
   ingredientTargets = {},
+  recipeSources = {},
 }: {
   title: string;
   url: string;
@@ -37,6 +38,8 @@ export function ArticleView({
   lang: Lang;
   /** Recipe materials resolved to their own articles, keyed by `ingredientKey`. */
   ingredientTargets?: Record<string, IngredientTarget>;
+  /** Each translated recipe row paired with the English it came from. */
+  recipeSources?: Record<string, string>;
 }) {
   const t = strings(lang);
   const tabs = doc.infobox?.tabs ?? [];
@@ -87,7 +90,13 @@ export function ArticleView({
       {doc.infobox ? (
         <div className="mt-4 flex flex-col gap-4">
           {mergeGroups([...doc.infobox.common, ...(activeTab?.groups ?? [])]).map((group, i) => (
-            <StatGroup key={i} group={group} lang={lang} ingredientTargets={ingredientTargets} />
+            <StatGroup
+              key={i}
+              group={group}
+              lang={lang}
+              ingredientTargets={ingredientTargets}
+              recipeSources={recipeSources}
+            />
           ))}
         </div>
       ) : null}
@@ -197,10 +206,12 @@ function StatGroup({
   group,
   lang,
   ingredientTargets,
+  recipeSources,
 }: {
   group: InfoboxGroup;
   lang: Lang;
   ingredientTargets: Record<string, IngredientTarget>;
+  recipeSources: Record<string, string>;
 }) {
   return (
     <section>
@@ -216,7 +227,12 @@ function StatGroup({
               <div key={i} className="border-b border-moss/60 px-3 py-2.5 last:border-b-0">
                 <dt className="label mb-2">{row.label}</dt>
                 <dd>
-                  <Recipe value={row.value} targets={ingredientTargets} lang={lang} />
+                  <Recipe
+                    value={row.value}
+                    sourceValue={recipeSources[row.value]}
+                    targets={ingredientTargets}
+                    lang={lang}
+                  />
                 </dd>
               </div>
             );

@@ -615,6 +615,11 @@ export type IngredientTarget = { slug: string; title: string; icon: string | nul
  *
  * One query for the whole recipe. A lookup per ingredient would be a dozen
  * round trips to a metered database to render a single infobox row.
+ *
+ * The whitespace pattern is `\s`, doubled, because this is a TypeScript
+ * string before it is a regular expression. Written once it becomes the plain
+ * letter `s`, and the query then normalises by collapsing every s in a title:
+ * `Bronze Nails` matched nothing because it had been folded to `bronze nail `.
  */
 export async function getIngredientTargets(
   db: Db,
@@ -626,11 +631,11 @@ export async function getIngredientTargets(
   const rows = await rawQuery<{ key: string; slug: string; title: string; icon: string | null }>(
     db,
     sql`
-      SELECT lower(regexp_replace(title, '\s+', ' ', 'g')) AS key,
+      SELECT lower(regexp_replace(title, '\\s+', ' ', 'g')) AS key,
              slug, title,
              ${ARTICLE_ICON} AS icon
       FROM articles
-      WHERE lower(regexp_replace(title, '\s+', ' ', 'g')) = ANY(
+      WHERE lower(regexp_replace(title, '\\s+', ' ', 'g')) = ANY(
         ${`{${wanted.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')}}`}::text[]
       )
     `,

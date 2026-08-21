@@ -88,8 +88,11 @@ export function isRecipeLabel(label: string): boolean {
   return RECIPE_LABEL.test(label.trim());
 }
 
+type RowLike = { label: string; value: string };
+type GroupLike = { rows: RowLike[] };
+
 /** Every ingredient named across an article's infobox, for one batched lookup. */
-export function recipeLookups(groups: { rows: { label: string; value: string }[] }[]): string[] {
+export function recipeLookups(groups: GroupLike[]): string[] {
   const names: string[] = [];
   for (const group of groups) {
     for (const row of group.rows) {
@@ -98,4 +101,39 @@ export function recipeLookups(groups: { rows: { label: string; value: string }[]
     }
   }
   return names;
+}
+
+/**
+ * Pairs each recipe row with the English it was translated from.
+ *
+ * A translated recipe usually carries the English alongside — `Madera (Wood)
+ * x5` — and that gloss is what finds the article. Usually, not always: one
+ * ingredient in the barber station came back as `Kit de peluquería x1` with
+ * the gloss dropped, and with it went the icon and the link.
+ *
+ * The English article is right there, and translation preserves structure, so
+ * the two can be walked together and the English used as the key regardless of
+ * what the translation kept. Resolution then depends on the ingest, which is
+ * consistent, instead of on a model remembering a convention.
+ *
+ * Keyed by the translated string because that is what the row renders, and it
+ * is what the component has in hand.
+ */
+export function pairRecipeSources(
+  translated: GroupLike[],
+  english: GroupLike[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+
+  translated.forEach((group, g) => {
+    group.rows.forEach((row, r) => {
+      if (!isRecipeLabel(row.label)) return;
+      const source = english[g]?.rows[r];
+      // Only when the row genuinely lines up; a shifted infobox would pair a
+      // recipe with somebody else's stat.
+      if (source && isRecipeLabel(source.label)) out[row.value] = source.value;
+    });
+  });
+
+  return out;
 }

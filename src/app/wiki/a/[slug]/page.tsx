@@ -6,7 +6,7 @@ import { AskButton } from '@/components/wiki/ask-button';
 import { TranslateOnView } from '@/components/wiki/translate-on-view';
 import { getDb } from '@/lib/db/client';
 import { getArticleBySlug, getIngredientTargets, getTranslation } from '@/lib/db/wiki-repo';
-import { recipeLookups } from '@/lib/wiki/recipe';
+import { pairRecipeSources, recipeLookups } from '@/lib/wiki/recipe';
 import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
 import { strings } from '@/lib/i18n/strings';
 
@@ -59,10 +59,17 @@ export default async function ArticlePage({ params }: Params) {
    * list of names. Doing it in the component would mean a round trip per
    * ingredient, to a metered database, to render one infobox row.
    */
-  const infobox = doc.infobox;
-  const groups = infobox ? [...infobox.common, ...infobox.tabs.flatMap((t) => t.groups)] : [];
-  const found = await getIngredientTargets(db, recipeLookups(groups));
+  const flatten = (box: typeof article.doc.infobox) =>
+    box ? [...box.common, ...box.tabs.flatMap((t) => t.groups)] : [];
+
+  const groups = flatten(doc.infobox);
+  const sourceGroups = flatten(article.doc.infobox);
+
+  // Names come from the English article, always: a translation that dropped a
+  // gloss should cost a parenthetical, not the icon and the link.
+  const found = await getIngredientTargets(db, recipeLookups(sourceGroups));
   const ingredientTargets = Object.fromEntries(found);
+  const recipeSources = translation ? pairRecipeSources(groups, sourceGroups) : {};
 
   return (
     <>
@@ -73,6 +80,7 @@ export default async function ArticlePage({ params }: Params) {
         doc={doc}
         lang={lang}
         ingredientTargets={ingredientTargets}
+        recipeSources={recipeSources}
       />
 
       {/*
