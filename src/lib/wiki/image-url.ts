@@ -22,3 +22,29 @@ export function fullSizeImageUrl(url: string): string {
   if (!url.includes('wikia.nocookie.net')) return url;
   return url.replace(RESIZE_SEGMENT, '');
 }
+
+/** `.../Iron.png/revision/latest?cb=1` — where the resizing segment belongs. */
+const REVISION = /\/revision\/latest/;
+
+/**
+ * Asks the CDN for an image at roughly the size it will be drawn.
+ *
+ * The same resizing path that had to be stripped for the lightbox is exactly
+ * what a grid of 32px icons wants. A recipe draws four of them, and serving
+ * four 300px sprites to draw them at 32 is most of a page's bandwidth spent on
+ * pixels the reader will never see — on the device this reader is mostly used
+ * on, over a connection that may be someone's phone plan.
+ *
+ * Asked for at twice the drawn size, so it stays sharp on a retina screen.
+ *
+ * A URL that already carries a resizing segment, or that is not from Fandom,
+ * is returned untouched: better the image the reader would have had than a
+ * URL assembled from a guess about someone else's CDN.
+ */
+export function thumbnailImageUrl(url: string, width: number): string {
+  if (!url.includes('wikia.nocookie.net')) return url;
+  if (RESIZE_SEGMENT.test(url)) return url;
+  if (!REVISION.test(url)) return url;
+
+  return url.replace(REVISION, `/revision/latest/scale-to-width-down/${Math.round(width * 2)}`);
+}

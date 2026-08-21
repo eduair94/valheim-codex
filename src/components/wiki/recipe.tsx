@@ -5,6 +5,7 @@ import type { Route } from 'next';
 import { articleHref } from '@/lib/routes';
 import { ingredientKey, parseRecipe } from '@/lib/wiki/recipe';
 import type { IngredientTarget } from '@/lib/db/wiki-repo';
+import { thumbnailImageUrl } from '@/lib/wiki/image-url';
 import { strings, type Lang } from '@/lib/i18n/strings';
 
 /**
@@ -72,7 +73,7 @@ export function Recipe({
                 /* Hotlinked from Fandom's CDN, like every other image here. */
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
-                  src={target.icon}
+                  src={thumbnailImageUrl(target.icon, 32)}
                   alt=""
                   loading="lazy"
                   onError={(e) => {
@@ -88,7 +89,13 @@ export function Recipe({
             </span>
 
             <span className="min-w-0">
-              <span className="block truncate text-[0.8rem] leading-tight text-birch">
+              {/*
+               * Wraps to two lines rather than truncating. Half the materials
+               * on this wiki are two or three words — "Clavos de bronce",
+               * "Kit de peluquería" — and a tile that says "Clavos de bron…"
+               * has spent its space telling the reader nothing.
+               */}
+              <span className="block text-[0.8rem] leading-tight text-balance text-birch">
                 {ingredient.display}
               </span>
               <span className="block font-mono text-[0.8rem] leading-tight font-semibold text-forge">
