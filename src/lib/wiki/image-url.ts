@@ -29,13 +29,16 @@ const REVISION = /\/revision\/latest/;
 /**
  * Asks the CDN for an image at roughly the size it will be drawn.
  *
- * The same resizing path that had to be stripped for the lightbox is exactly
- * what a grid of 32px icons wants. A recipe draws four of them, and serving
- * four 300px sprites to draw them at 32 is most of a page's bandwidth spent on
- * pixels the reader will never see — on the device this reader is mostly used
- * on, over a connection that may be someone's phone plan.
+ * The same resizing path that had to be stripped for the lightbox is what a
+ * grid of 32px icons wants. Asked for at twice the drawn size, so it stays
+ * sharp on a retina screen.
  *
- * Asked for at twice the drawn size, so it stays sharp on a retina screen.
+ * Worth roughly 10%, measured over forty icons: 98.5 KB against 88.4 KB, with
+ * none coming back larger. Not the saving it looks like it should be, because
+ * most of these sprites are already a couple of kilobytes and Fandom returns
+ * them unchanged. The gain is concentrated in the few that are not — a charred
+ * warrior went from 17.9 KB to 2 KB — and those are exactly the ones that would
+ * otherwise stall a recipe on a slow connection.
  *
  * A URL that already carries a resizing segment, or that is not from Fandom,
  * is returned untouched: better the image the reader would have had than a
