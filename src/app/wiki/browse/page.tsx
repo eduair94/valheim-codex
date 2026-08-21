@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { BrowseAxes } from '@/components/wiki/browse-axes';
+import { FeaturedGuideCard } from '@/components/wiki/featured-guide-card';
 import { getDb } from '@/lib/db/client';
 import { listCategories, listFacetValues } from '@/lib/db/wiki-repo';
 import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
@@ -36,15 +37,18 @@ export default async function BrowsePage() {
   const lang = parseLang(cookieStore.get(LANG_COOKIE)?.value);
 
   return (
-    <BrowseAxes
-      lang={lang}
-      tiles={BROWSE_TILES}
-      overflow="chips"
-      data={{
-        biomes: orderedBiomes(biomes),
-        categories: mainCategories(categories),
-        stations: mainStations(stations),
-      }}
-    />
+    <>
+      <FeaturedGuideCard lang={lang} />
+      <BrowseAxes
+        lang={lang}
+        tiles={BROWSE_TILES}
+        overflow="chips"
+        data={{
+          biomes: orderedBiomes(biomes),
+          categories: mainCategories(categories),
+          stations: mainStations(stations),
+        }}
+      />
+    </>
   );
 }

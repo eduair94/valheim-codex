@@ -7,6 +7,7 @@ import { searchTitles } from '@/lib/wiki/title-search';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { articleHref } from '@/lib/routes';
 import { BrowseAxes, type BrowseAxesData, type TileCounts } from './browse-axes';
+import { FeaturedGuideCard } from './featured-guide-card';
 
 type ContentHit = { slug: string; title: string; sectionPath: string; snippet: string };
 
@@ -129,6 +130,7 @@ export function SearchView({
           <p className="mb-5 font-mono text-[0.68rem] text-ash">
             {t.wikiSearchEmpty.replace('{n}', String(totalArticles))}
           </p>
+          <FeaturedGuideCard lang={lang} />
           <BrowseAxes lang={lang} data={axes} tiles={tiles} overflow="link" />
         </div>
       ) : matches.length === 0 && extraHits.length === 0 ? (
