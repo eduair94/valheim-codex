@@ -6,6 +6,7 @@ import type { TitleIndexEntry } from '@/lib/db/wiki-repo';
 import { searchTitles } from '@/lib/wiki/title-search';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { articleHref } from '@/lib/routes';
+import { BrowseAxes, type BrowseAxesData } from './browse-axes';
 
 type ContentHit = { slug: string; title: string; sectionPath: string; snippet: string };
 
@@ -13,20 +14,29 @@ type ContentHit = { slug: string; title: string; sectionPath: string; snippet: s
 const MIN_CONTENT_QUERY = 3;
 
 /**
- * Search.
+ * Search, and — until something is typed — the way in for everyone who does
+ * not yet have a word to type.
  *
  * Titles are matched in the browser against an index downloaded once: a
  * thousand entries filter in well under a frame, so results appear as you
  * type with no request and no spinner — and it keeps working offline. The
  * server is asked only for the harder question, "the words are in the body,
  * not the name", and only once typing pauses.
+ *
+ * An empty query used to render one grey sentence under the field, which asked
+ * a visitor who had just arrived to already know the name of a Valheim item.
+ * The browsing axes take that space instead: the search field still leads,
+ * because someone who knows the word should not have to scroll past a menu to
+ * use it, and everyone else now has somewhere to go.
  */
 export function SearchView({
   lang,
   totalArticles,
+  axes,
 }: {
   lang: Lang;
   totalArticles: number;
+  axes: BrowseAxesData;
 }) {
   const t = strings(lang);
   const [query, setQuery] = useState('');
@@ -113,9 +123,12 @@ export function SearchView({
       </div>
 
       {query.trim() === '' ? (
-        <p className="mt-6 text-sm text-ash">
-          {t.wikiSearchEmpty.replace('1027', String(totalArticles))}
-        </p>
+        <div className="mt-3">
+          <p className="mb-5 font-mono text-[0.68rem] text-ash">
+            {t.wikiSearchEmpty.replace('{n}', String(totalArticles))}
+          </p>
+          <BrowseAxes lang={lang} data={axes} truncated />
+        </div>
       ) : matches.length === 0 && extraHits.length === 0 ? (
         <p className="mt-6 text-sm text-ash">{t.wikiNoResults}</p>
       ) : (

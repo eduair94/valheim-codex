@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { LangToggle } from '@/components/lang-toggle';
 import { relativeTime, strings, type Lang } from '@/lib/i18n/strings';
 
 export type ConversationSummary = {
@@ -180,25 +181,7 @@ export function Sidebar({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <div
-            className="flex overflow-hidden rounded-sm border border-moss"
-            role="group"
-            aria-label={t.language}
-          >
-            {(['es', 'en'] as const).map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => onLangChange(code)}
-                aria-pressed={lang === code}
-                className={`px-2 py-1 font-mono text-[0.65rem] uppercase transition-colors ${
-                  lang === code ? 'bg-forge text-bog' : 'text-ash hover:text-birch'
-                }`}
-              >
-                {code}
-              </button>
-            ))}
-          </div>
+          <LangToggle lang={lang} onChange={onLangChange} />
 
           <button
             type="button"

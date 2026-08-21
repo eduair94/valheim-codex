@@ -188,6 +188,38 @@ export const articles = pgTable(
 );
 
 /**
+ * Machine translations of articles, cached permanently.
+ *
+ * There is no Spanish Valheim wiki to point at, so a Spanish reader gets a
+ * translation or gets English. Translating the whole corpus up front is
+ * millions of tokens against free tiers that allow tens of thousands a day;
+ * translating per view would be slow every time and spend the budget in an
+ * afternoon. Translating on first view and keeping the result bounds the cost
+ * by what people actually read, and the second reader waits for nothing.
+ *
+ * `sourceUpdatedAt` is the article's `updatedAt` when it was translated, so a
+ * re-index that changes the article marks the translation stale instead of
+ * silently serving a translation of text that no longer exists.
+ */
+export const articleTranslations = pgTable(
+  'article_translations',
+  {
+    pageKey: text('page_key')
+      .notNull()
+      .references(() => pages.key, { onDelete: 'cascade' }),
+    lang: text('lang').notNull(),
+    title: text('title').notNull(),
+    lead: text('lead').notNull().default(''),
+    blocks: jsonb('blocks').$type<unknown[]>().notNull().default([]),
+    infobox: jsonb('infobox').$type<unknown>(),
+    model: text('model').notNull(),
+    sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.pageKey, t.lang] }), index('article_translations_lang_idx').on(t.lang)],
+);
+
+/**
  * Index-level settings.
  *
  * Vectors produced by different embedding models are not comparable, so the

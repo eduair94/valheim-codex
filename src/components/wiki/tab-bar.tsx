@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import { AUTHENTICATED_HOME, loginHref } from '@/lib/auth/access';
+import { LangToggle } from '@/components/lang-toggle';
 import { strings, type Lang } from '@/lib/i18n/strings';
 
 /**
@@ -39,7 +40,8 @@ export function TabBar({ lang, authenticated }: { lang: Lang; authenticated: boo
       aria-label={t.wiki}
       className="sticky bottom-0 z-30 border-t border-moss bg-peat/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:top-0 sm:bottom-auto sm:border-b sm:border-t-0 sm:pb-0"
     >
-      <ul className="mx-auto flex max-w-3xl">
+      <div className="mx-auto flex max-w-3xl items-center">
+        <ul className="flex flex-1">
         {tabs.map((tab) => (
           <li key={tab.key} className="flex-1">
             <Link
@@ -64,7 +66,14 @@ export function TabBar({ lang, authenticated }: { lang: Lang; authenticated: boo
             </Link>
           </li>
         ))}
-      </ul>
+        </ul>
+
+        {/*
+         * Pinned to the end rather than made a fourth tab: it switches the
+         * language of everything, it is not somewhere to navigate to.
+         */}
+        <LangToggle lang={lang} className="mr-3 ml-2 shrink-0 sm:mr-4" />
+      </div>
     </nav>
   );
 }

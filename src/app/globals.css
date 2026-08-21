@@ -378,12 +378,22 @@ body {
 
   .stack-table tbody td {
     display: grid;
-    grid-template-columns: minmax(6rem, 40%) 1fr;
+    grid-template-columns: 5.5rem 1fr;
     gap: 0.75rem;
     align-items: baseline;
     padding: 0.5rem 0.75rem;
     white-space: normal;
     text-align: left;
+    /*
+     * Body face, not the monospace the desktop table uses. Monospace is there
+     * to align digits down a column; stacked into cards there is no column to
+     * align, so all it buys is a list of twelve creature names set in twelve
+     * lines of typewriter. Tabular figures stay, so a card of numbers still
+     * looks deliberate.
+     */
+    font-family: var(--font-body);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
   }
   .stack-table tbody td + td {
     border-top: 1px solid color-mix(in srgb, var(--color-moss) 70%, transparent);

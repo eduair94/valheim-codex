@@ -1,0 +1,207 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: Buscá un objeto, criatura o bioma…
+        - searchbox "Buscá un objeto, criatura o bioma…" [ref=e7]
+      - generic [ref=e8]:
+        - paragraph [ref=e9]: Escribí para buscar entre 1027 artículos.
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - heading "Biomas" [level=2] [ref=e13]
+            - paragraph [ref=e15]: En el orden en que el juego te los va abriendo.
+            - list [ref=e16]:
+              - listitem [ref=e17]:
+                - link "Meadows 8" [ref=e18] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Meadows
+                  - generic [ref=e20]:
+                    - generic [ref=e21]:
+                      - generic [ref=e22]: "1"
+                      - generic [ref=e23]: Meadows
+                    - generic [ref=e24]: "8"
+              - listitem [ref=e25]:
+                - link "Black Forest 13" [ref=e26] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Black+Forest
+                  - generic [ref=e28]:
+                    - generic [ref=e29]:
+                      - generic [ref=e30]: "2"
+                      - generic [ref=e31]: Black Forest
+                    - generic [ref=e32]: "13"
+              - listitem [ref=e33]:
+                - link "Swamp 11" [ref=e34] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Swamp
+                  - generic [ref=e36]:
+                    - generic [ref=e37]:
+                      - generic [ref=e38]: "3"
+                      - generic [ref=e39]: Swamp
+                    - generic [ref=e40]: "11"
+              - listitem [ref=e41]:
+                - link "Mountain 8" [ref=e42] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Mountain
+                  - generic [ref=e44]:
+                    - generic [ref=e45]:
+                      - generic [ref=e46]: "4"
+                      - generic [ref=e47]: Mountain
+                    - generic [ref=e48]: "8"
+              - listitem [ref=e49]:
+                - link "Plains 8" [ref=e50] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Plains
+                  - generic [ref=e52]:
+                    - generic [ref=e53]:
+                      - generic [ref=e54]: "5"
+                      - generic [ref=e55]: Plains
+                    - generic [ref=e56]: "8"
+              - listitem [ref=e57]:
+                - link "Mistlands 11" [ref=e58] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Mistlands
+                  - generic [ref=e60]:
+                    - generic [ref=e61]:
+                      - generic [ref=e62]: "6"
+                      - generic [ref=e63]: Mistlands
+                    - generic [ref=e64]: "11"
+              - listitem [ref=e65]:
+                - link "Ashlands 17" [ref=e66] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Ashlands
+                  - generic [ref=e68]:
+                    - generic [ref=e69]:
+                      - generic [ref=e70]: "7"
+                      - generic [ref=e71]: Ashlands
+                    - generic [ref=e72]: "17"
+              - listitem [ref=e73]:
+                - link "Ocean 2" [ref=e74] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Ocean
+                  - generic [ref=e76]:
+                    - generic [ref=e77]:
+                      - generic [ref=e78]: "8"
+                      - generic [ref=e79]: Ocean
+                    - generic [ref=e80]: "2"
+              - listitem [ref=e81]:
+                - link "Meadows and Plains 1" [ref=e82] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Meadows+and+Plains
+                  - generic [ref=e84]:
+                    - generic [ref=e85]:
+                      - generic [ref=e86]: "9"
+                      - generic [ref=e87]: Meadows and Plains
+                    - generic [ref=e88]: "1"
+              - listitem [ref=e89]:
+                - link "Rivers 1" [ref=e90] [cursor=pointer]:
+                  - /url: /wiki/c/all?biome=Rivers
+                  - generic [ref=e92]:
+                    - generic [ref=e93]:
+                      - generic [ref=e94]: "10"
+                      - generic [ref=e95]: Rivers
+                    - generic [ref=e96]: "1"
+          - generic [ref=e97]:
+            - generic [ref=e98]:
+              - heading "Categorías" [level=2] [ref=e99]
+              - link "Ver todo →" [ref=e101] [cursor=pointer]:
+                - /url: /wiki/browse
+            - list [ref=e102]:
+              - listitem [ref=e103]:
+                - link "Materials 165" [ref=e104] [cursor=pointer]:
+                  - /url: /wiki/c/Materials
+                  - generic [ref=e106]:
+                    - generic [ref=e107]: Materials
+                    - generic [ref=e109]: "165"
+              - listitem [ref=e110]:
+                - link "Weapons 158" [ref=e111] [cursor=pointer]:
+                  - /url: /wiki/c/Weapons
+                  - generic [ref=e113]:
+                    - generic [ref=e114]: Weapons
+                    - generic [ref=e116]: "158"
+              - listitem [ref=e117]:
+                - link "Food 79" [ref=e118] [cursor=pointer]:
+                  - /url: /wiki/c/Food
+                  - generic [ref=e120]:
+                    - generic [ref=e121]: Food
+                    - generic [ref=e123]: "79"
+              - listitem [ref=e124]:
+                - link "Armor 68" [ref=e125] [cursor=pointer]:
+                  - /url: /wiki/c/Armor
+                  - generic [ref=e127]:
+                    - generic [ref=e128]: Armor
+                    - generic [ref=e130]: "68"
+              - listitem [ref=e131]:
+                - link "Creatures 68" [ref=e132] [cursor=pointer]:
+                  - /url: /wiki/c/Creatures
+                  - generic [ref=e134]:
+                    - generic [ref=e135]: Creatures
+                    - generic [ref=e137]: "68"
+              - listitem [ref=e138]:
+                - link "Points of interest 54" [ref=e139] [cursor=pointer]:
+                  - /url: /wiki/c/Points%20of%20interest
+                  - generic [ref=e141]:
+                    - generic [ref=e142]: Points of interest
+                    - generic [ref=e144]: "54"
+              - listitem [ref=e145]:
+                - link "Crafting structures 47" [ref=e146] [cursor=pointer]:
+                  - /url: /wiki/c/Crafting%20structures
+                  - generic [ref=e148]:
+                    - generic [ref=e149]: Crafting structures
+                    - generic [ref=e151]: "47"
+              - listitem [ref=e152]:
+                - link "Misc structures 46" [ref=e153] [cursor=pointer]:
+                  - /url: /wiki/c/Misc%20structures
+                  - generic [ref=e155]:
+                    - generic [ref=e156]: Misc structures
+                    - generic [ref=e158]: "46"
+          - generic [ref=e159]:
+            - generic [ref=e160]:
+              - heading "Estaciones de crafteo" [level=2] [ref=e161]
+              - link "Ver todo →" [ref=e163] [cursor=pointer]:
+                - /url: /wiki/browse
+            - list [ref=e164]:
+              - listitem [ref=e165]:
+                - link "Workbench 94" [ref=e166] [cursor=pointer]:
+                  - /url: /wiki/c/all?station=Workbench
+                  - generic [ref=e168]:
+                    - generic [ref=e169]: Workbench
+                    - generic [ref=e171]: "94"
+              - listitem [ref=e172]:
+                - link "Forge 72" [ref=e173] [cursor=pointer]:
+                  - /url: /wiki/c/all?station=Forge
+                  - generic [ref=e175]:
+                    - generic [ref=e176]: Forge
+                    - generic [ref=e178]: "72"
+              - listitem [ref=e179]:
+                - link "Black forge 67" [ref=e180] [cursor=pointer]:
+                  - /url: /wiki/c/all?station=Black+forge
+                  - generic [ref=e182]:
+                    - generic [ref=e183]: Black forge
+                    - generic [ref=e185]: "67"
+              - listitem [ref=e186]:
+                - link "Cauldron 27" [ref=e187] [cursor=pointer]:
+                  - /url: /wiki/c/all?station=Cauldron
+                  - generic [ref=e189]:
+                    - generic [ref=e190]: Cauldron
+                    - generic [ref=e192]: "27"
+              - listitem [ref=e193]:
+                - link "Fermenter 20" [ref=e194] [cursor=pointer]:
+                  - /url: /wiki/c/all?station=Fermenter
+                  - generic [ref=e196]:
+                    - generic [ref=e197]: Fermenter
+                    - generic [ref=e199]: "20"
+              - listitem [ref=e200]:
+                - link "Galdr table 11" [ref=e201] [cursor=pointer]:
+                  - /url: /wiki/c/all?station=Galdr+table
+                  - generic [ref=e203]:
+                    - generic [ref=e204]: Galdr table
+                    - generic [ref=e206]: "11"
+  - navigation "Wiki" [ref=e207]:
+    - list [ref=e208]:
+      - listitem [ref=e209]:
+        - link "Buscar" [ref=e210] [cursor=pointer]:
+          - /url: /wiki
+          - generic [ref=e211]: ⌕
+      - listitem [ref=e213]:
+        - link "Explorar" [ref=e214] [cursor=pointer]:
+          - /url: /wiki/browse
+          - generic [ref=e215]: ☰
+      - listitem [ref=e217]:
+        - link "Chat Requiere contraseña" [ref=e218] [cursor=pointer]:
+          - /url: /login
+          - generic [ref=e219]: ✦
+          - generic [ref=e220]:
+            - text: Chat
+            - generic [ref=e221]: 🔒
+          - generic [ref=e222]: Requiere contraseña

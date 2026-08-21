@@ -11,6 +11,8 @@ export type StoredArticle = {
   url: string;
   categories: string[];
   doc: ArticleDoc;
+  /** When the ingest last wrote this article; a translation older than it is stale. */
+  updatedAt: Date;
 };
 
 export type ArticleUpsert = {
@@ -70,6 +72,7 @@ type ArticleRow = {
   infobox: ArticleDoc['infobox'];
   images: ArticleDoc['images'];
   facets: ArticleDoc['facets'];
+  updated_at: string;
 };
 
 function toStored(row: ArticleRow): StoredArticle {
@@ -80,6 +83,7 @@ function toStored(row: ArticleRow): StoredArticle {
     slug: row.slug,
     url: row.url,
     categories: row.categories ?? [],
+    updatedAt: new Date(row.updated_at),
     doc: {
       lead: row.lead,
       blocks: row.blocks ?? [],
@@ -93,7 +97,7 @@ function toStored(row: ArticleRow): StoredArticle {
 export async function getArticleBySlug(db: Db, slug: string): Promise<StoredArticle | null> {
   const rows = await rawQuery<ArticleRow>(
     db,
-    sql`SELECT page_key, source, title, slug, url, categories, lead, blocks, infobox, images, facets
+    sql`SELECT page_key, source, title, slug, url, categories, lead, blocks, infobox, images, facets, updated_at
         FROM articles WHERE slug = ${slug} LIMIT 1`,
   );
   return rows[0] ? toStored(rows[0]) : null;
@@ -107,6 +111,17 @@ export async function getSlugForTitle(db: Db, title: string): Promise<string | n
   );
   return rows[0]?.slug ?? null;
 }
+
+/**
+ * An article's picture.
+ *
+ * The infobox image where there is one, and the first image on the page
+ * otherwise. Biome and structure articles carry no infobox image at all — the
+ * Swamp page's picture of the swamp and the Workbench page's picture of the
+ * workbench both sit in the gallery — so an infobox-only rule leaves exactly
+ * the articles that most need a picture without one.
+ */
+const ARTICLE_ICON = sql`coalesce(infobox->'image'->>'url', images->0->>'url')`;
 
 export type TitleIndexEntry = {
   s: string; // slug
@@ -135,7 +150,7 @@ export async function getTitleIndex(db: Db): Promise<TitleIndexEntry[]> {
     db,
     sql`SELECT slug, title, categories,
                facets->>'type' AS type,
-               infobox->'image'->>'url' AS icon
+               ${ARTICLE_ICON} AS icon
         FROM articles ORDER BY title`,
   );
 
@@ -147,19 +162,49 @@ export async function getTitleIndex(db: Db): Promise<TitleIndexEntry[]> {
   });
 }
 
-export type CategorySummary = { name: string; count: number };
+/**
+ * A browsable group of articles.
+ *
+ * `icon` is one member's sprite, borrowed to stand for the whole group. A
+ * category tile with a picture of a sword on it is recognised before its label
+ * is read, which is the entire reason browsing beats typing when you do not yet
+ * know the name of the thing you want.
+ */
+export type CategorySummary = { name: string; count: number; icon: string | null };
+
+/**
+ * One member's icon, to stand for the group.
+ *
+ * The group's own article wins when there is one: "Swamp" has a Swamp page and
+ * "Forge" has a Forge page, and their pictures are of the place and the bench.
+ * Taking any other member gave the Swamp a picture of a Greydwarf and the Forge
+ * a picture of a barrel — accurate about a member, wrong about the group.
+ *
+ * Alphabetical after that, so a group with no article of its own still shows
+ * the same sprite on every render rather than flickering between members.
+ */
+const REPRESENTATIVE_ICON = sql`(
+  array_agg(icon ORDER BY (lower(title) = lower(name)) DESC, title)
+    FILTER (WHERE icon IS NOT NULL)
+)[1] AS icon`;
 
 /** Categories with at least `min` articles, largest first. */
 export async function listCategories(db: Db, min = 3): Promise<CategorySummary[]> {
-  const rows = await rawQuery<{ name: string; n: string }>(
+  const rows = await rawQuery<{ name: string; n: string; icon: string | null }>(
     db,
-    sql`SELECT jsonb_array_elements_text(categories) AS name, count(*)::text AS n
-        FROM articles
-        GROUP BY 1
+    sql`WITH member AS (
+          SELECT jsonb_array_elements_text(categories) AS name,
+                 title,
+                 ${ARTICLE_ICON} AS icon
+          FROM articles
+        )
+        SELECT name, count(*)::text AS n, ${REPRESENTATIVE_ICON}
+        FROM member
+        GROUP BY name
         HAVING count(*) >= ${min}
-        ORDER BY count(*) DESC, 1`,
+        ORDER BY count(*) DESC, name`,
   );
-  return rows.map((r) => ({ name: r.name, count: Number(r.n) }));
+  return rows.map((r) => ({ name: r.name, count: Number(r.n), icon: r.icon }));
 }
 
 /** Distinct values of one facet, with counts. */
@@ -167,14 +212,21 @@ export async function listFacetValues(
   db: Db,
   facet: 'biome' | 'station' | 'type',
 ): Promise<CategorySummary[]> {
-  const rows = await rawQuery<{ name: string; n: string }>(
+  const rows = await rawQuery<{ name: string; n: string; icon: string | null }>(
     db,
-    sql`SELECT facets->>${facet} AS name, count(*)::text AS n
-        FROM articles
-        WHERE facets->>${facet} IS NOT NULL AND facets->>${facet} <> ''
-        GROUP BY 1 ORDER BY count(*) DESC, 1`,
+    sql`WITH member AS (
+          SELECT facets->>${facet} AS name,
+                 title,
+                 ${ARTICLE_ICON} AS icon
+          FROM articles
+          WHERE facets->>${facet} IS NOT NULL AND facets->>${facet} <> ''
+        )
+        SELECT name, count(*)::text AS n, ${REPRESENTATIVE_ICON}
+        FROM member
+        GROUP BY name
+        ORDER BY count(*) DESC, name`,
   );
-  return rows.map((r) => ({ name: r.name, count: Number(r.n) }));
+  return rows.map((r) => ({ name: r.name, count: Number(r.n), icon: r.icon }));
 }
 
 export type ArticleSummary = {
@@ -215,7 +267,7 @@ export async function listArticles(
     facets: Record<string, string>;
   }>(
     db,
-    sql`SELECT slug, title, lead, infobox->'image'->>'url' AS icon, facets
+    sql`SELECT slug, title, lead, ${ARTICLE_ICON} AS icon, facets
         FROM articles
         WHERE ${sql.join(conditions, sql` AND `)}
         ORDER BY title
@@ -455,4 +507,78 @@ export async function getLeadImages(
     if (row.url) found.set(row.slug, { url: row.url, alt: row.alt ?? '' });
   }
   return found;
+}
+
+/** A cached translation, or null when the article has never been translated. */
+export async function getTranslation(
+  db: Db,
+  pageKey: string,
+  lang: string,
+): Promise<{ title: string; doc: ArticleDoc; stale: boolean } | null> {
+  const rows = await rawQuery<{
+    title: string;
+    lead: string;
+    blocks: unknown;
+    infobox: unknown;
+    stale: boolean;
+  }>(
+    db,
+    sql`
+      SELECT t.title, t.lead, t.blocks, t.infobox,
+             (t.source_updated_at < a.updated_at) AS stale
+      FROM article_translations t
+      JOIN articles a ON a.page_key = t.page_key
+      WHERE t.page_key = ${pageKey} AND t.lang = ${lang}
+      LIMIT 1
+    `,
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    title: row.title,
+    stale: row.stale,
+    doc: {
+      lead: row.lead,
+      blocks: (row.blocks ?? []) as ArticleDoc['blocks'],
+      infobox: (row.infobox ?? null) as ArticleDoc['infobox'],
+      // Images and facets are never translated: one is binary, the other is
+      // matched against English values elsewhere in the app.
+      images: [],
+      facets: {},
+    },
+  };
+}
+
+/** Stores a translation, replacing any earlier one for the same article and language. */
+export async function saveTranslation(
+  db: Db,
+  input: {
+    pageKey: string;
+    lang: string;
+    title: string;
+    doc: ArticleDoc;
+    model: string;
+    sourceUpdatedAt: Date;
+  },
+): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO article_translations
+      (page_key, lang, title, lead, blocks, infobox, model, source_updated_at)
+    VALUES (
+      ${input.pageKey}, ${input.lang}, ${input.title}, ${input.doc.lead},
+      ${JSON.stringify(input.doc.blocks)}::jsonb,
+      ${input.doc.infobox === null ? null : JSON.stringify(input.doc.infobox)}::jsonb,
+      ${input.model}, ${input.sourceUpdatedAt.toISOString()}
+    )
+    ON CONFLICT (page_key, lang) DO UPDATE SET
+      title = EXCLUDED.title,
+      lead = EXCLUDED.lead,
+      blocks = EXCLUDED.blocks,
+      infobox = EXCLUDED.infobox,
+      model = EXCLUDED.model,
+      source_updated_at = EXCLUDED.source_updated_at,
+      created_at = now()
+  `);
 }
