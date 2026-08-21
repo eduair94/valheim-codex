@@ -8,6 +8,7 @@ import type {
   InfoboxGroup,
   TableBlock,
 } from '@/lib/wiki/article-types';
+import { Gallery } from './gallery';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { categoryHref } from '@/lib/routes';
 
@@ -333,34 +334,5 @@ function DataTable({ block }: { block: TableBlock }) {
         </table>
       </div>
     </figure>
-  );
-}
-
-function Gallery({ images, lang }: { images: ArticleDoc['images']; lang: Lang }) {
-  const t = strings(lang);
-  return (
-    <section className="mt-8">
-      <h2 className="label mb-2">{t.wikiGallery}</h2>
-      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {images.slice(0, 12).map((image) => (
-          <li key={image.url}>
-            <figure className="overflow-hidden rounded-md border border-moss bg-peat">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={image.url}
-                alt={image.alt || image.caption || ''}
-                loading="lazy"
-                className="h-32 w-full object-contain p-1"
-              />
-              {image.caption ? (
-                <figcaption className="border-t border-moss px-2 py-1 text-[0.68rem] text-ash">
-                  {image.caption}
-                </figcaption>
-              ) : null}
-            </figure>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
