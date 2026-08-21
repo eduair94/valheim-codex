@@ -3,7 +3,7 @@ import { createDb } from '../src/lib/db/create-db';
 import { rawQuery } from '../src/lib/db/create-db';
 import { sql } from 'drizzle-orm';
 import { getArticleBySlug, getTranslation, saveTranslation } from '../src/lib/db/wiki-repo';
-import { translateArticle } from '../src/lib/wiki/translate';
+import { extractStrings, translateArticle } from '../src/lib/wiki/translate';
 
 /**
  * Translates the corpus a bit at a time, and picks up where it left off.
@@ -79,11 +79,24 @@ for (const row of pending) {
   }
 
   /*
-   * A partial translation is still stored. Most of the article in Spanish
-   * beats none of it, the untranslated strings stayed in English rather than
-   * becoming wrong, and re-running later will not redo the ones that worked —
-   * the article is only revisited when the wiki itself changes.
+   * A mostly-failed translation is not stored, because the page would carry a
+   * "machine translation" label over an article that is still in English —
+   * which is worse than the honest English article, and worse than nothing,
+   * since the cache would stop anyone retrying it.
+   *
+   * A mostly-successful one is stored even with gaps. Most of an article in
+   * Spanish beats none of it, and the strings that failed stayed in English
+   * rather than becoming wrong.
    */
+  const translated = extractStrings(article.doc, article.title).strings.length;
+  if (failed > translated / 2) {
+    console.log(
+      `  ${row.slug.padEnd(34)} omitido: ${failed} de ${translated} cadenas sin traducir`,
+    );
+    stopped = row.slug;
+    break;
+  }
+
   await saveTranslation(handle.db, {
     pageKey: article.pageKey,
     lang,
