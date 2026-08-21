@@ -347,7 +347,8 @@ export function GuideContent() {
         <h1 className="display text-2xl text-birch sm:text-3xl">Codex de Valheim</h1>
         <p className="answer mt-2 text-[0.95rem] text-ash">
           Checklist completa, bioma por bioma, para llegar al 100% del contenido actual del juego.
-          Los nombres de objetos, criaturas y estructuras aparecen en <Item>inglés</Item>, tal como
+          Los nombres de objetos, criaturas y estructuras aparecen en{' '}
+          <Item link={false}>inglés</Item>, tal como
           figuran en el juego.
         </p>
 

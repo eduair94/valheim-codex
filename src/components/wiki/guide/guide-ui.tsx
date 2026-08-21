@@ -7,12 +7,32 @@ import { rune } from '@/lib/i18n/strings';
  * The reader asked for English names inside Spanish prose so they can match
  * what the game itself shows them — the monospace treatment is what makes
  * that name jump out of a sentence instead of reading as a typo.
+ *
+ * Linked to the original wiki's search rather than a guessed `/wiki/<Name>`
+ * URL: this guide's own research hit real article titles that only
+ * capitalise the first word (`Giant_remains`, `Seeker_brood`, `Galdr_table`)
+ * right alongside others that capitalise every word (`Artisan_Table`,
+ * `Black_Marble`) — there is no rule to reproduce from ~190 names typed once
+ * each, and a guessed exact-case URL that misses is a dead page. Search
+ * always lands on something useful, usually the article itself.
  */
-export function Item({ children }: { children: ReactNode }) {
-  return (
+export function Item({ children, link = true }: { children: ReactNode; link?: boolean }) {
+  const chip = (
     <code className="whitespace-nowrap rounded-sm bg-moss/50 px-1 py-0.5 font-mono text-[0.85em] text-forge">
       {children}
     </code>
+  );
+  if (!link || typeof children !== 'string') return chip;
+  return (
+    <a
+      href={`https://valheim.fandom.com/wiki/Special:Search?query=${encodeURIComponent(children)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="no-underline transition-opacity hover:opacity-80"
+      title="Ver en la wiki original"
+    >
+      {chip}
+    </a>
   );
 }
 
