@@ -12,8 +12,8 @@ const FORGE = '#D98A34';
 const BIRCH = '#E8E2D0';
 const ASH = '#9AA089';
 
-const cinzel = readFile(join(process.cwd(), 'src/assets/fonts/Cinzel-SemiBold.ttf'));
-const spectral = readFile(join(process.cwd(), 'src/assets/fonts/Spectral-Regular.ttf'));
+const cinzel = readFile(join(process.cwd(), 'public/fonts/Cinzel-SemiBold.ttf'));
+const spectral = readFile(join(process.cwd(), 'public/fonts/Spectral-Regular.ttf'));
 
 export default async function Image() {
   const [cinzelData, spectralData] = await Promise.all([cinzel, spectral]);

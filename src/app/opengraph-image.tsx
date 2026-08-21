@@ -19,8 +19,8 @@ const ASH = '#9AA089';
 
 // Read once at module scope — this route is fully static (no params), so
 // Next renders it a single time at build and serves the PNG from then on.
-const cinzel = readFile(join(process.cwd(), 'src/assets/fonts/Cinzel-SemiBold.ttf'));
-const spectral = readFile(join(process.cwd(), 'src/assets/fonts/Spectral-Regular.ttf'));
+const cinzel = readFile(join(process.cwd(), 'public/fonts/Cinzel-SemiBold.ttf'));
+const spectral = readFile(join(process.cwd(), 'public/fonts/Spectral-Regular.ttf'));
 
 /** The Fehu rune from `icon.svg`, at its own viewBox so it drops in at any size. */
 function RuneMark({ size: s }: { size: number }) {
