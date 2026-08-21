@@ -85,13 +85,23 @@ export function Gallery({ images, lang }: { images: ArticleImage[]; lang: Lang }
         zoom={{ maxZoomPixelRatio: 4, doubleTapDelay: 250 }}
         captions={{ descriptionTextAlign: 'center' }}
         styles={{
-          // The library's default is a neutral black that would put a cold
-          // rectangle in the middle of a deliberately warm palette.
-          container: { backgroundColor: 'color-mix(in srgb, var(--color-bog) 94%, transparent)' },
+          /*
+           * Opaque, and in the palette. The library's default is a neutral
+           * black, which drops a cold rectangle into a deliberately warm page;
+           * its default is also translucent, which left the article's own
+           * headings legible behind the photo and competing with it. A
+           * lightbox has no reason to be see-through.
+           */
+          container: { backgroundColor: 'var(--color-bog)' },
+          button: { color: 'var(--color-ash)', filter: 'none' },
+          navigationPrev: { color: 'var(--color-ash)' },
+          navigationNext: { color: 'var(--color-ash)' },
           captionsDescription: {
             backgroundColor: 'transparent',
             color: 'var(--color-birch)',
             fontFamily: 'var(--font-body)',
+            fontSize: '0.85rem',
+            padding: '0.75rem 1rem 1.25rem',
           },
         }}
       />
