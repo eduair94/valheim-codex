@@ -173,20 +173,38 @@ export async function getTitleIndex(db: Db): Promise<TitleIndexEntry[]> {
 export type CategorySummary = { name: string; count: number; icon: string | null };
 
 /**
- * One member's icon, to stand for the group.
+ * Every article's picture, keyed by its title.
  *
- * The group's own article wins when there is one: "Swamp" has a Swamp page and
- * "Forge" has a Forge page, and their pictures are of the place and the bench.
- * Taking any other member gave the Swamp a picture of a Greydwarf and the Forge
- * a picture of a barrel — accurate about a member, wrong about the group.
+ * The group's own article is what a tile should show — the Swamp page's picture
+ * is of the swamp, the Workbench page's is of the workbench — and it is almost
+ * never inside its own group: a biome page carries no `biome` facet and a bench
+ * page carries no `station` facet, so grouping alone cannot reach it. This is
+ * the lookup that can.
  *
- * Alphabetical after that, so a group with no article of its own still shows
- * the same sprite on every render rather than flickering between members.
+ * `DISTINCT ON` keeps it one row per title, so joining against it cannot
+ * duplicate a member and inflate a group's count.
  */
-const REPRESENTATIVE_ICON = sql`(
-  array_agg(icon ORDER BY (lower(title) = lower(name)) DESC, title)
-    FILTER (WHERE icon IS NOT NULL)
-)[1] AS icon`;
+const ARTICLE_BY_TITLE = sql`named AS (
+  SELECT DISTINCT ON (lower(title)) lower(title) AS key, ${ARTICLE_ICON} AS icon
+  FROM articles
+  ORDER BY lower(title), title
+)`;
+
+/**
+ * One picture to stand for a group.
+ *
+ * The group's own article first; failing that, the alphabetically first member
+ * that has a picture — arbitrary, but the same on every render, so the picture
+ * becomes part of how the group is recognised instead of flickering between
+ * members on each load.
+ */
+const REPRESENTATIVE_ICON = sql`coalesce(
+  max(named.icon),
+  (array_agg(member.icon ORDER BY member.title) FILTER (WHERE member.icon IS NOT NULL))[1]
+) AS icon`;
+
+/** Joins each member to its group's own article, when the wiki has one. */
+const JOIN_NAMED = sql`LEFT JOIN named ON named.key = lower(member.name)`;
 
 /** Categories with at least `min` articles, largest first. */
 export async function listCategories(db: Db, min = 3): Promise<CategorySummary[]> {
@@ -197,12 +215,12 @@ export async function listCategories(db: Db, min = 3): Promise<CategorySummary[]
                  title,
                  ${ARTICLE_ICON} AS icon
           FROM articles
-        )
-        SELECT name, count(*)::text AS n, ${REPRESENTATIVE_ICON}
-        FROM member
-        GROUP BY name
+        ), ${ARTICLE_BY_TITLE}
+        SELECT member.name, count(*)::text AS n, ${REPRESENTATIVE_ICON}
+        FROM member ${JOIN_NAMED}
+        GROUP BY member.name
         HAVING count(*) >= ${min}
-        ORDER BY count(*) DESC, name`,
+        ORDER BY count(*) DESC, member.name`,
   );
   return rows.map((r) => ({ name: r.name, count: Number(r.n), icon: r.icon }));
 }
@@ -220,11 +238,11 @@ export async function listFacetValues(
                  ${ARTICLE_ICON} AS icon
           FROM articles
           WHERE facets->>${facet} IS NOT NULL AND facets->>${facet} <> ''
-        )
-        SELECT name, count(*)::text AS n, ${REPRESENTATIVE_ICON}
-        FROM member
-        GROUP BY name
-        ORDER BY count(*) DESC, name`,
+        ), ${ARTICLE_BY_TITLE}
+        SELECT member.name, count(*)::text AS n, ${REPRESENTATIVE_ICON}
+        FROM member ${JOIN_NAMED}
+        GROUP BY member.name
+        ORDER BY count(*) DESC, member.name`,
   );
   return rows.map((r) => ({ name: r.name, count: Number(r.n), icon: r.icon }));
 }

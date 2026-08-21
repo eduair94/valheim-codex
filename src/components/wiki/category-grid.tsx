@@ -85,26 +85,31 @@ export function CategoryGrid({
 /**
  * The group's picture, on a plate.
  *
- * The sprites are transparent PNGs of wildly different proportions, so the
- * plate is what keeps a row of tiles aligned. Fandom's CDN also 404s
- * intermittently; an absent picture reads fine against the plate, a
- * broken-image glyph does not.
+ * Wider than tall, because this set mixes two shapes: square item sprites for
+ * the categories and the benches, and landscape screenshots for the biomes. In
+ * a square plate a landscape letterboxes down to a strip a few pixels tall and
+ * every biome becomes an identical dark smudge — the exact failure the compare
+ * table already solved this way.
+ *
+ * The plate is also what keeps a row aligned when a picture is missing. Fandom's
+ * CDN 404s intermittently; an empty plate reads fine, a broken-image glyph does
+ * not.
  */
 function Thumb({ icon }: { icon: string | null }) {
   return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border border-moss/70 bg-bog/60">
+    <span className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-moss/70 bg-bog/60">
       {icon ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={icon}
           alt=""
-          width={36}
-          height={36}
+          width={60}
+          height={44}
           loading="lazy"
           onError={(e) => {
             e.currentTarget.style.display = 'none';
           }}
-          className="h-9 w-9 object-contain"
+          className="h-11 w-15 object-contain"
         />
       ) : (
         <span aria-hidden="true" className="text-sm text-ash">
