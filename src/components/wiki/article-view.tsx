@@ -45,25 +45,35 @@ export function ArticleView({
       ) : null}
 
       {tabs.length > 1 ? (
-        <div
-          className="mt-5 flex gap-1 overflow-x-auto rounded-md border border-moss bg-peat p-1"
-          role="tablist"
-          aria-label={t.wikiLevels}
-        >
-          {tabs.map((x) => (
-            <button
-              key={x.label}
-              type="button"
-              role="tab"
-              aria-selected={x.label === tab}
-              onClick={() => setTab(x.label)}
-              className={`shrink-0 rounded-sm px-3 py-1.5 font-mono text-xs transition-colors ${
-                x.label === tab ? 'bg-forge text-bog' : 'text-ash hover:text-birch'
-              }`}
-            >
-              {/^\d+$/.test(x.label) ? `${t.wikiLevel} ${x.label}` : x.label}
-            </button>
-          ))}
+        <div className="mt-5">
+          {/*
+           * The tabs used to appear as four bare numbers. They are upgrade
+           * levels — the same item improved at a crafting station — and
+           * nothing on the page said so, which left the reader switching
+           * between tabs to work out what was changing.
+           */}
+          <p className="label mb-1.5">{t.wikiLevels}</p>
+          <div
+            className="flex gap-1 overflow-x-auto rounded-md border border-moss bg-peat p-1"
+            role="tablist"
+            aria-label={t.wikiLevels}
+          >
+            {tabs.map((x) => (
+              <button
+                key={x.label}
+                type="button"
+                role="tab"
+                aria-selected={x.label === tab}
+                onClick={() => setTab(x.label)}
+                className={`shrink-0 rounded-sm px-3 py-1.5 font-mono text-xs transition-colors ${
+                  x.label === tab ? 'bg-forge text-bog' : 'text-ash hover:text-birch'
+                }`}
+              >
+                {/^\d+$/.test(x.label) ? `${t.wikiLevel} ${x.label}` : x.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[0.8rem] leading-snug text-ash">{t.wikiLevelsHint}</p>
         </div>
       ) : null}
 

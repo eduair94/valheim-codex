@@ -21,6 +21,12 @@ const NOISE_SELECTORS = [
   'table.navbox',
   '.toc',
   '#toc',
+  // Maths is emitted three times over — MathML, a TeX annotation and an
+  // image — and plain text extraction concatenates the first two into
+  // glyph soup. A formula contributes nothing to an embedding anyway.
+  '.mwe-math-element',
+  'math',
+  'annotation',
   '.wikia-gallery',
   '.gallery',
   '.mw-empty-elt',

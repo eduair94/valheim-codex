@@ -37,6 +37,23 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 190)}px`;
   }, [value]);
 
+  /*
+   * Arriving from "Ask about this" used to drop the reader on a chat that
+   * looked untouched: the article name was sitting in the box, but the box was
+   * not focused, so on a phone the keyboard stayed down and the button read as
+   * broken. Focusing it — with the caret after the prefill, not selecting it —
+   * makes the button visibly do what it says.
+   */
+  useEffect(() => {
+    if (!initialValue) return;
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    // Only on arrival. Refocusing whenever the prop is re-read would steal the
+    // caret back from someone who had already started typing elsewhere.
+  }, [initialValue]);
+
   const submit = (): void => {
     const text = value.trim();
     if (!text || disabled) return;

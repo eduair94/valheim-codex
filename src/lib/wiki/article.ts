@@ -70,6 +70,7 @@ export async function extractArticle(html: string): Promise<ArticleDoc> {
   // stat as prose.
   root.find('aside.portable-infobox').remove();
   root.find(NOISE).remove();
+  collapseMath($, root);
 
   const blocks: ArticleBlock[] = [];
   const images: ArticleImage[] = [];
@@ -450,4 +451,29 @@ function liftFacets(infobox: ArticleInfobox | null): ArticleFacets {
     if (value && value.length <= 40) facets[key] = value;
   }
   return facets;
+}
+
+/**
+ * Collapses MediaWiki's maths markup to a single readable expression.
+ *
+ * MediaWiki emits every formula three times: MathML for screen readers, a
+ * TeX annotation inside it, and a rendered image. Plain text extraction takes
+ * the first two and concatenates them, which is why an article about drop
+ * rates read
+ *
+ *   "…with the formula ∑ i = 0 k ( n i ) p i ( 1 − p ) n − i
+ *    {\displaystyle \sum _{i=0}^{k}{n \choose i}p^{i}(1-p)^{n-i}}"
+ *
+ * — the glyphs stripped of their layout, then the source, neither of which is
+ * a formula. The TeX annotation alone is at least honest and compact, and the
+ * app already sets values in a monospaced face.
+ */
+function collapseMath($: Api, root: cheerio.Cheerio<AnyNode>): void {
+  for (const el of root.find('.mwe-math-element').toArray()) {
+    const tex = $(el).find('annotation[encoding="application/x-tex"]').first().text().trim();
+    if (tex) $(el).replaceWith(`<code>${tex}</code>`);
+    else $(el).remove();
+  }
+  // Any maths outside that wrapper: the MathML is glyph soup without layout.
+  root.find('math, annotation').remove();
 }
