@@ -600,3 +600,41 @@ export async function saveTranslation(
       created_at = now()
   `);
 }
+
+/** An article a recipe ingredient points at. */
+export type IngredientTarget = { slug: string; title: string; icon: string | null };
+
+/**
+ * Resolves ingredient names to the articles that describe them, in one query.
+ *
+ * By title rather than by slug, because a recipe names its materials the way
+ * the wiki writes them — `Leather scraps` — and the slug is a derived form.
+ * Matched case- and whitespace-insensitively: `Iron Nails` and `Iron nails`
+ * are the same material, and which one a recipe happened to use should not
+ * decide whether the reader gets a picture and a link.
+ *
+ * One query for the whole recipe. A lookup per ingredient would be a dozen
+ * round trips to a metered database to render a single infobox row.
+ */
+export async function getIngredientTargets(
+  db: Db,
+  names: string[],
+): Promise<Map<string, IngredientTarget>> {
+  const wanted = [...new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean))];
+  if (wanted.length === 0) return new Map();
+
+  const rows = await rawQuery<{ key: string; slug: string; title: string; icon: string | null }>(
+    db,
+    sql`
+      SELECT lower(regexp_replace(title, '\s+', ' ', 'g')) AS key,
+             slug, title,
+             ${ARTICLE_ICON} AS icon
+      FROM articles
+      WHERE lower(regexp_replace(title, '\s+', ' ', 'g')) = ANY(
+        ${`{${wanted.map((n) => `"${n.replace(/"/g, '\\"')}"`).join(',')}}`}::text[]
+      )
+    `,
+  );
+
+  return new Map(rows.map((row) => [row.key, { slug: row.slug, title: row.title, icon: row.icon }]));
+}

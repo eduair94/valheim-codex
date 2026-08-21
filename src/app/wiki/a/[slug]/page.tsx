@@ -5,7 +5,8 @@ import { ArticleView } from '@/components/wiki/article-view';
 import { AskButton } from '@/components/wiki/ask-button';
 import { TranslateOnView } from '@/components/wiki/translate-on-view';
 import { getDb } from '@/lib/db/client';
-import { getArticleBySlug, getTranslation } from '@/lib/db/wiki-repo';
+import { getArticleBySlug, getIngredientTargets, getTranslation } from '@/lib/db/wiki-repo';
+import { recipeLookups } from '@/lib/wiki/recipe';
 import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
 import { strings } from '@/lib/i18n/strings';
 
@@ -52,6 +53,17 @@ export default async function ArticlePage({ params }: Params) {
       }
     : article.doc;
 
+  /*
+   * Recipe ingredients are resolved here, in one query for the whole article,
+   * so the reader gets a picture and a link for each material instead of a
+   * list of names. Doing it in the component would mean a round trip per
+   * ingredient, to a metered database, to render one infobox row.
+   */
+  const infobox = doc.infobox;
+  const groups = infobox ? [...infobox.common, ...infobox.tabs.flatMap((t) => t.groups)] : [];
+  const found = await getIngredientTargets(db, recipeLookups(groups));
+  const ingredientTargets = Object.fromEntries(found);
+
   return (
     <>
       <ArticleView
@@ -60,6 +72,7 @@ export default async function ArticlePage({ params }: Params) {
         categories={article.categories}
         doc={doc}
         lang={lang}
+        ingredientTargets={ingredientTargets}
       />
 
       {/*

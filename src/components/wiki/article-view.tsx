@@ -9,6 +9,9 @@ import type {
   TableBlock,
 } from '@/lib/wiki/article-types';
 import { Gallery } from './gallery';
+import { Recipe } from './recipe';
+import { isRecipeLabel } from '@/lib/wiki/recipe';
+import type { IngredientTarget } from '@/lib/db/wiki-repo';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { categoryHref } from '@/lib/routes';
 
@@ -25,12 +28,15 @@ export function ArticleView({
   categories,
   doc,
   lang,
+  ingredientTargets = {},
 }: {
   title: string;
   url: string;
   categories: string[];
   doc: ArticleDoc;
   lang: Lang;
+  /** Recipe materials resolved to their own articles, keyed by `ingredientKey`. */
+  ingredientTargets?: Record<string, IngredientTarget>;
 }) {
   const t = strings(lang);
   const tabs = doc.infobox?.tabs ?? [];
@@ -81,7 +87,7 @@ export function ArticleView({
       {doc.infobox ? (
         <div className="mt-4 flex flex-col gap-4">
           {mergeGroups([...doc.infobox.common, ...(activeTab?.groups ?? [])]).map((group, i) => (
-            <StatGroup key={i} group={group} />
+            <StatGroup key={i} group={group} lang={lang} ingredientTargets={ingredientTargets} />
           ))}
         </div>
       ) : null}
@@ -187,12 +193,35 @@ const INLINE_VALUE_LIMIT = 42;
  * value drops below its label and reads as prose, because a paragraph
  * right-aligned in a narrow column is unreadable.
  */
-function StatGroup({ group }: { group: InfoboxGroup }) {
+function StatGroup({
+  group,
+  lang,
+  ingredientTargets,
+}: {
+  group: InfoboxGroup;
+  lang: Lang;
+  ingredientTargets: Record<string, IngredientTarget>;
+}) {
   return (
     <section>
       {group.label ? <h2 className="label mb-1.5">{group.label}</h2> : null}
       <dl className="overflow-hidden rounded-md border border-moss">
         {group.rows.map((row, i) => {
+          /*
+           * A recipe is the one row whose parts are separately findable
+           * things, so it gets pictures and links rather than a value.
+           */
+          if (isRecipeLabel(row.label)) {
+            return (
+              <div key={i} className="border-b border-moss/60 px-3 py-2.5 last:border-b-0">
+                <dt className="label mb-2">{row.label}</dt>
+                <dd>
+                  <Recipe value={row.value} targets={ingredientTargets} lang={lang} />
+                </dd>
+              </div>
+            );
+          }
+
           const long = row.value.length > INLINE_VALUE_LIMIT;
           return (
             <div
