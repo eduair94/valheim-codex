@@ -9,6 +9,7 @@ import 'yet-another-react-lightbox/styles.css';
 import 'yet-another-react-lightbox/plugins/captions.css';
 import 'yet-another-react-lightbox/plugins/counter.css';
 import type { ArticleImage } from '@/lib/wiki/article-types';
+import { fullSizeImageUrl } from '@/lib/wiki/image-url';
 import { strings, type Lang } from '@/lib/i18n/strings';
 
 /**
@@ -69,7 +70,8 @@ export function Gallery({ images, lang }: { images: ArticleImage[]; lang: Lang }
         index={Math.max(open, 0)}
         close={() => setOpen(-1)}
         slides={shown.map((image) => ({
-          src: image.url,
+          // The grid keeps the thumbnail; full screen deserves the original.
+          src: fullSizeImageUrl(image.url),
           alt: image.alt || image.caption || '',
           description: image.caption,
         }))}
@@ -78,6 +80,8 @@ export function Gallery({ images, lang }: { images: ArticleImage[]; lang: Lang }
         // dead controls.
         carousel={{ finite: shown.length <= 1 }}
         controller={{ closeOnBackdropClick: true }}
+        // Some wiki images are genuinely small even at full size — sprites are
+        // 64px — so allow scaling past 1:1 rather than showing a stamp.
         zoom={{ maxZoomPixelRatio: 4, doubleTapDelay: 250 }}
         captions={{ descriptionTextAlign: 'center' }}
         styles={{
