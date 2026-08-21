@@ -286,7 +286,7 @@ export function Chat({
                 role="alert"
                 className="mt-6 flex items-center justify-between gap-3 rounded-md border border-blood/50 bg-blood/10 px-3 py-2 text-sm"
               >
-                <span>{t.errorGeneric}</span>
+                <span>{error.message || t.errorGeneric}</span>
                 <button
                   type="button"
                   onClick={clearError}
