@@ -69,4 +69,6 @@ writeFileSync(envPath, `${kept}\nAPP_PASSWORD_HASH=${hash}\nSESSION_SECRET=${ses
 });
 
 console.log(`Wrote APP_PASSWORD_HASH and SESSION_SECRET to ${envPath}. Neither was printed.`);
-console.log('Restart the app for them to take effect. Rotating SESSION_SECRET signs everyone out.');
+console.log("Recreate the app for them to take effect: `docker compose up -d`.");
+console.log("`docker compose restart` will NOT pick them up — env_file is read at create time.");
+console.log("Rotating SESSION_SECRET signs everyone out.");

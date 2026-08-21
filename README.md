@@ -338,6 +338,21 @@ minutes and serverless caps out at 60–300 seconds.
 
 ---
 
+### `restart` does not reload `.env`
+
+`docker compose restart` restarts the container with the environment it was
+created with. `env_file` is read at create time, so a changed secret is only
+picked up by a recreate:
+
+```bash
+node scripts/set-password.mjs "the password you chose"
+docker compose up -d      # NOT `restart`
+```
+
+This fails quietly and confusingly: the file on disk is right, the container is
+healthy, and every login is rejected. `docker exec valheim-codex printenv
+APP_PASSWORD_HASH` against the value in `.env` is what tells them apart.
+
 ### Rebuilding without taking the site down
 
 The image is built on the same machine that serves it, and an unconstrained

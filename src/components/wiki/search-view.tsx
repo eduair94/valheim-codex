@@ -6,7 +6,7 @@ import type { TitleIndexEntry } from '@/lib/db/wiki-repo';
 import { searchTitles } from '@/lib/wiki/title-search';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { articleHref } from '@/lib/routes';
-import { BrowseAxes, type BrowseAxesData } from './browse-axes';
+import { BrowseAxes, type BrowseAxesData, type TileCounts } from './browse-axes';
 
 type ContentHit = { slug: string; title: string; sectionPath: string; snippet: string };
 
@@ -33,10 +33,12 @@ export function SearchView({
   lang,
   totalArticles,
   axes,
+  tiles,
 }: {
   lang: Lang;
   totalArticles: number;
   axes: BrowseAxesData;
+  tiles: TileCounts;
 }) {
   const t = strings(lang);
   const [query, setQuery] = useState('');
@@ -127,7 +129,7 @@ export function SearchView({
           <p className="mb-5 font-mono text-[0.68rem] text-ash">
             {t.wikiSearchEmpty.replace('{n}', String(totalArticles))}
           </p>
-          <BrowseAxes lang={lang} data={axes} truncated />
+          <BrowseAxes lang={lang} data={axes} tiles={tiles} overflow="link" />
         </div>
       ) : matches.length === 0 && extraHits.length === 0 ? (
         <p className="mt-6 text-sm text-ash">{t.wikiNoResults}</p>

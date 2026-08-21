@@ -58,8 +58,8 @@ export function orderedBiomes(items: CategorySummary[]): CategorySummary[] {
  * Showing both puts near-duplicate tiles side by side and buries the
  * categories that answer a different question.
  */
-export function mainCategories(items: CategorySummary[], limit: number): CategorySummary[] {
-  return items.filter((item) => !/\brecipes$/i.test(item.name)).slice(0, limit);
+export function mainCategories(items: CategorySummary[]): CategorySummary[] {
+  return items.filter((item) => !/\brecipes$/i.test(item.name));
 }
 
 /** A crafting station's level. "Cauldron (level 3)", "Artisan table level 2". */
@@ -77,8 +77,6 @@ const NOT_A_STATION = new Set(['n/a', 'Crafting', 'Smelting', 'Console', 'Hildir
  * A station's upgrade levels are the same bench in the same spot; as separate
  * tiles they read as separate places to walk to.
  */
-export function mainStations(items: CategorySummary[], limit: number): CategorySummary[] {
-  return items
-    .filter((item) => !STATION_LEVEL.test(item.name) && !NOT_A_STATION.has(item.name))
-    .slice(0, limit);
+export function mainStations(items: CategorySummary[]): CategorySummary[] {
+  return items.filter((item) => !STATION_LEVEL.test(item.name) && !NOT_A_STATION.has(item.name));
 }

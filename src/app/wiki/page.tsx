@@ -10,12 +10,11 @@ export const dynamic = 'force-dynamic';
 /**
  * How much of each axis the front page shows.
  *
- * Enough to be a real choice and few enough to stay above the fold on a phone
- * together with the search field. The biomes are not cut — there are nine of
- * them and they are the spine of the game.
+ * Enough to be a real choice and few enough that the whole page is a short
+ * scroll on a phone. The biomes are not cut — there are eight of them and they
+ * are the spine of the game.
  */
-const HOME_CATEGORIES = 8;
-const HOME_STATIONS = 6;
+const HOME_TILES = { categories: 8, stations: 6 };
 
 export default async function WikiSearchPage() {
   const db = await getDb();
@@ -32,10 +31,11 @@ export default async function WikiSearchPage() {
     <SearchView
       lang={lang}
       totalArticles={total}
+      tiles={HOME_TILES}
       axes={{
         biomes: orderedBiomes(biomes),
-        categories: mainCategories(categories, HOME_CATEGORIES),
-        stations: mainStations(stations, HOME_STATIONS),
+        categories: mainCategories(categories),
+        stations: mainStations(stations),
       }}
     />
   );

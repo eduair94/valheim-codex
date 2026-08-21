@@ -83,6 +83,35 @@ export function CategoryGrid({
 }
 
 /**
+ * The tail of an axis, as bare names.
+ *
+ * Past the first dozen, a category is "Polearms, 5" — a real answer to a
+ * question almost nobody arrives with. Given a tile each, forty of them turn
+ * the browse tab into a wall you scroll for half a minute, and the picture
+ * stops meaning "this is worth looking at" because everything has one. As text
+ * they still take a thumb, and the tiles above them get their weight back.
+ */
+export function CategoryChips({ items, axis }: { items: CategorySummary[]; axis: BrowseAxis }) {
+  if (items.length === 0) return null;
+
+  return (
+    <ul className="mt-2 flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <li key={item.name}>
+          <Link
+            href={hrefFor(axis, item.name)}
+            className="flex min-h-9 items-baseline gap-1.5 rounded-md border border-moss bg-peat/60 px-2.5 py-1.5 text-[0.82rem] text-birch/90 transition-colors hover:border-forge/40 hover:text-birch"
+          >
+            {item.name}
+            <span className="font-mono text-[0.6rem] text-ash">{item.count}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * The group's picture, on a plate.
  *
  * Wider than tall, because this set mixes two shapes: square item sprites for

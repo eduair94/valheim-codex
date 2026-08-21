@@ -39,33 +39,32 @@ describe('orderedBiomes', () => {
 
 describe('mainCategories', () => {
   it('drops the recipe categories, which the stations axis already answers', () => {
-    const kept = mainCategories(
-      [group('Weapons', 158), group('Forge recipes', 50), group('Cooking recipes', 23)],
-      10,
-    );
+    const kept = mainCategories([
+      group('Weapons', 158),
+      group('Forge recipes', 50),
+      group('Cooking recipes', 23),
+    ]);
     expect(kept.map((c) => c.name)).toEqual(['Weapons']);
   });
 
-  it('takes the largest groups first, up to the limit', () => {
-    const kept = mainCategories(
-      [group('Materials', 165), group('Weapons', 158), group('Food', 79)],
-      2,
-    );
-    expect(kept.map((c) => c.name)).toEqual(['Materials', 'Weapons']);
+  it('keeps the order it was given, which is largest first', () => {
+    const kept = mainCategories([group('Materials', 165), group('Weapons', 158), group('Food', 79)]);
+    expect(kept.map((c) => c.name)).toEqual(['Materials', 'Weapons', 'Food']);
   });
 });
 
 describe('mainStations', () => {
   it('drops the levelled variants, which are the same bench upgraded', () => {
-    const kept = mainStations(
-      [group('Cauldron', 27), group('Cauldron (level 3)', 3), group('Artisan table level 2', 1)],
-      10,
-    );
+    const kept = mainStations([
+      group('Cauldron', 27),
+      group('Cauldron (level 3)', 3),
+      group('Artisan table level 2', 1),
+    ]);
     expect(kept.map((s) => s.name)).toEqual(['Cauldron']);
   });
 
   it('drops placeholder values that name no bench', () => {
-    const kept = mainStations([group('Workbench', 94), group('n/a', 1), group('Crafting', 1)], 10);
+    const kept = mainStations([group('Workbench', 94), group('n/a', 1), group('Crafting', 1)]);
     expect(kept.map((s) => s.name)).toEqual(['Workbench']);
   });
 });
