@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import type { Metadata } from 'next';
 import { BrowseAxes } from '@/components/wiki/browse-axes';
 import { FeaturedGuideCard } from '@/components/wiki/featured-guide-card';
 import { getDb } from '@/lib/db/client';
@@ -7,6 +8,11 @@ import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
 import { mainCategories, mainStations, orderedBiomes } from '@/lib/wiki/browse-groups';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Explorar — Valheim Codex',
+  description: 'Todos los biomas, categorías y estaciones de crafteo de la wiki de Valheim, para navegar sin saber qué buscás.',
+};
 
 /**
  * How many groups get a picture here.

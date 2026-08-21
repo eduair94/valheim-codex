@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import type { Metadata } from 'next';
 import { SearchView } from '@/components/wiki/search-view';
 import { getDb } from '@/lib/db/client';
 import { countArticles, listCategories, listFacetValues } from '@/lib/db/wiki-repo';
@@ -6,6 +7,11 @@ import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
 import { mainCategories, mainStations, orderedBiomes } from '@/lib/wiki/browse-groups';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Buscar — Valheim Codex',
+  description: 'Buscá un objeto, criatura o bioma de Valheim, o explorá la wiki por biomas, categorías y estaciones de crafteo.',
+};
 
 /**
  * How much of each axis the front page shows.

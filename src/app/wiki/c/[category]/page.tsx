@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
+import type { Metadata } from 'next';
 import { CategoryView } from '@/components/wiki/category-view';
 import { getDb } from '@/lib/db/client';
 import { buildCompareTable, listArticles, listCompareTabs, type BrowseFilter } from '@/lib/db/wiki-repo';
@@ -12,6 +13,19 @@ type Props = {
   params: Promise<{ category: string }>;
   searchParams: Promise<{ biome?: string; station?: string; type?: string; view?: string; tab?: string }>;
 };
+
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
+  const [{ category }, query] = await Promise.all([params, searchParams]);
+  const decoded = decodeURIComponent(category);
+  const heading = [decoded !== 'all' ? decoded : null, query.biome, query.station, query.type]
+    .filter(Boolean)
+    .join(' · ');
+  const title = heading || 'Explorar';
+  return {
+    title: `${title} — Valheim Codex`,
+    description: `Artículos de Valheim en ${title}, con la fuente original a la vista.`,
+  };
+}
 
 export default async function CategoryPage({ params, searchParams }: Props) {
   const [{ category }, query, cookieStore] = await Promise.all([params, searchParams, cookies()]);

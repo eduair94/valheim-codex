@@ -191,7 +191,7 @@ export function Chat({
     status === 'submitted' || status === 'streaming' ? currentStage(messages, t) : null;
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-bog">
+    <div className="flex h-dvh overflow-hidden bg-bog pt-[env(safe-area-inset-top)]">
       {/* Mobile drawer */}
       {sidebarOpen ? (
         <div

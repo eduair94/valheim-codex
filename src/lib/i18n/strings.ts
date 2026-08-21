@@ -113,6 +113,11 @@ export const STRINGS = {
     wikiGuideTeaser: 'Los 7 jefes, bioma por bioma, con checklist.',
     wikiGuideEnNotice: 'Esta guía todavía solo existe en español.',
     wikiGuideEnBack: 'Volver a la wiki',
+
+    installBanner: 'Instalá Codex de Valheim en tu pantalla de inicio: abre más rápido y funciona sin conexión.',
+    installIosBanner: 'Instalá esta app: tocá Compartir y elegí «Agregar a inicio».',
+    installAction: 'Instalar',
+    installDismiss: 'Cerrar',
   },
   en: {
     appName: 'Valheim Codex',
@@ -217,6 +222,11 @@ export const STRINGS = {
     wikiGuideTeaser: 'All 7 bosses, biome by biome, with a checklist.',
     wikiGuideEnNotice: 'This guide only exists in Spanish for now.',
     wikiGuideEnBack: 'Back to the wiki',
+
+    installBanner: 'Install Valheim Codex on your home screen: it opens faster and works offline.',
+    installIosBanner: 'Install this app: tap Share and choose “Add to Home Screen”.',
+    installAction: 'Install',
+    installDismiss: 'Dismiss',
   },
 } as const;
 

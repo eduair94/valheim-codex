@@ -39,6 +39,13 @@ body {
   font-size: 16px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
+  /*
+   * The browser's default tap flash is a light-mode grey rectangle — on this
+   * palette it reads as a UI glitch rather than a mode change. Every
+   * interactive element already has its own hover/active state, so nothing
+   * relies on the default.
+   */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Carved inscriptional caps, used sparingly: app name and section labels. */

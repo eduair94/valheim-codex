@@ -68,8 +68,10 @@ export const config = {
      * `sw.js` and the manifest are excluded because a browser fetches them
      * outside any page context: redirecting either would silently break
      * installation and offline reading, with the service worker registering
-     * the login HTML as its own script.
+     * the login HTML as its own script. The icon files and `/opengraph-image`
+     * are the same story for install icons and link-preview crawlers — a
+     * crawler that gets a 302 to `/login` renders no preview at all.
      */
-    '/((?!_next/static|_next/image|favicon.ico|icon.svg|icon-maskable.svg|manifest.webmanifest|sw.js).*)',
+    '/((?!_next/static|_next/image|favicon.ico|favicon-32.png|icon.svg|icon-maskable.svg|icon-192.png|icon-512.png|icon-512-maskable.png|apple-touch-icon.png|manifest.webmanifest|opengraph-image|sw.js).*)',
   ],
 };

@@ -15,7 +15,7 @@
  * build-time plugin would hide exactly the decisions above.
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `wv-shell-${VERSION}`;
 const PAGE_CACHE = `wv-pages-${VERSION}`;
 const IMAGE_CACHE = `wv-images-${VERSION}`;
@@ -24,7 +24,16 @@ const IMAGE_CACHE = `wv-images-${VERSION}`;
 const MAX_PAGES = 120;
 const MAX_IMAGES = 300;
 
-const SHELL_ASSETS = ['/wiki', '/manifest.webmanifest', '/icon.svg'];
+const SHELL_ASSETS = [
+  '/wiki',
+  '/manifest.webmanifest',
+  '/icon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/apple-touch-icon.png',
+];
+/** The root-level asset paths above that live outside `/wiki` and `/_next`. */
+const SHELL_ASSET_PATHS = new Set(SHELL_ASSETS.filter((p) => p !== '/wiki'));
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -85,8 +94,7 @@ self.addEventListener('fetch', (event) => {
   if (
     url.pathname.startsWith('/wiki') ||
     url.pathname.startsWith('/_next/static') ||
-    url.pathname === '/icon.svg' ||
-    url.pathname === '/manifest.webmanifest'
+    SHELL_ASSET_PATHS.has(url.pathname)
   ) {
     event.respondWith(staleWhileRevalidate(request, PAGE_CACHE, MAX_PAGES));
   }
