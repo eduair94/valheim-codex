@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { rawQuery, type Db } from './create-db';
 import { articles } from './schema';
 import type { ArticleDoc } from '@/lib/wiki/article-types';
+import { normalizeTerm, splitGloss, type LinkTarget } from '@/lib/wiki/links';
 
 export type StoredArticle = {
   pageKey: string;
@@ -599,6 +600,46 @@ export async function saveTranslation(
       source_updated_at = EXCLUDED.source_updated_at,
       created_at = now()
   `);
+}
+
+/**
+ * Every name that can be linked to an article, in the reader's language.
+ *
+ * One term per English title, plus one per translated title where a
+ * translation exists — a Spanish page names things in Spanish and only
+ * sometimes carries the English alongside. The translated title is stored
+ * with its gloss (`Diente de león (Dandelion)`), which is dropped here: the
+ * term is the name alone, and the gloss is matched by the English entry.
+ */
+export async function getLinkIndex(db: Db, lang: string): Promise<LinkTarget[]> {
+  const rows = await rawQuery<{ slug: string; title: string; translated: string | null }>(
+    db,
+    sql`SELECT a.slug, a.title, t.title AS translated
+        FROM articles a
+        LEFT JOIN article_translations t ON t.page_key = a.page_key AND t.lang = ${lang}
+        ORDER BY a.title`,
+  );
+
+  const out: LinkTarget[] = [];
+  for (const row of rows) {
+    const translated = row.translated ? withoutGloss(row.translated, row.title) : null;
+    const title = translated || row.title;
+    out.push({ match: row.title, slug: row.slug, title });
+    if (translated && translated.toLowerCase() !== row.title.toLowerCase()) {
+      out.push({ match: translated, slug: row.slug, title });
+    }
+  }
+  return out;
+}
+
+/**
+ * `Espada de hierro (Iron Sword)` → `Espada de hierro`, but only when the
+ * bracket really is the English title: `Yuleklapp (medium)` is a name with
+ * brackets in it, and stripping them would point "Yuleklapp" at one size.
+ */
+function withoutGloss(translated: string, english: string): string {
+  const split = splitGloss(translated);
+  return split && normalizeTerm(split.gloss) === normalizeTerm(english) ? split.name : translated;
 }
 
 /** An article a recipe ingredient points at. */
