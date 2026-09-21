@@ -151,19 +151,33 @@ export function linkify(text: string, linker: Linker): Segment[] {
   return segments;
 }
 
-/** Joins `Name (Gloss)` into one hit when both halves point at the same article. */
+/**
+ * Reconciles a name with the gloss that follows it.
+ *
+ * `Praderas (Meadows)`: both halves name the same article, so they become one
+ * link rather than two.
+ *
+ * `Espectro gris bruto (Greydwarf brute)`: the gloss says what the phrase is,
+ * and it is not a Wraith — but "Espectro" alone is the Wraith's Spanish name,
+ * because two translations of the same creature did not agree. A hit that is
+ * only the start of a phrase whose gloss names a different article is the
+ * translator's wording, not a mention, and is dropped. The gloss keeps its
+ * link.
+ */
 function mergeGlossed(text: string, hits: Hit[]): Hit[] {
   const out: Hit[] = [];
   for (const hit of hits) {
     const previous = out[out.length - 1];
-    if (
-      previous &&
-      previous.target.slug === hit.target.slug &&
-      /^\s*\(\s*$/.test(text.slice(previous.end, hit.start)) &&
-      text[hit.end] === ')'
-    ) {
-      previous.end = hit.end + 1;
-      continue;
+    const glossed = previous && text[hit.start - 1] === '(' && text[hit.end] === ')';
+    if (glossed) {
+      const between = text.slice(previous.end, hit.start);
+      if (previous.target.slug === hit.target.slug && /^\s*\(\s*$/.test(between)) {
+        previous.end = hit.end + 1;
+        continue;
+      }
+      // Words, but no punctuation, between the hit and the bracket: the hit
+      // opens the phrase the gloss describes.
+      if (/^[^\p{P}]*\p{L}[^\p{P}]*\(\s*$/u.test(between)) out.pop();
     }
     out.push({ ...hit });
   }

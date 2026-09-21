@@ -82,6 +82,22 @@ describe('linkify', () => {
     ]);
   });
 
+  it('drops a name that merely opens a phrase glossed as something else', () => {
+    // On the live Dandelion page "Espectro gris bruto (Greydwarf brute)" linked
+    // "Espectro" to the Wraith: the brute's own article is translated as
+    // "Bruto grisenano", so the two Spanish names never met.
+    const index = [...INDEX, { match: 'Espectro', slug: 'wraith', title: 'Espectro' }];
+    expect(linked('Lo suelta el Espectro gris bruto (Greydwarf brute).', buildLinker(index))).toEqual(
+      [['Greydwarf brute', 'greydwarf-brute']],
+    );
+    // A real mention followed by a bracketed, unrelated name is still a mention.
+    expect(linked('Espectro, atacado con Wood (Black Forest).', buildLinker(index))).toEqual([
+      ['Espectro', 'wraith'],
+      ['Wood', 'wood'],
+      ['Black Forest', 'black-forest'],
+    ]);
+  });
+
   it('keeps two adjacent glosses to different articles apart', () => {
     expect(linked('Wood (Black Forest)')).toEqual([
       ['Wood', 'wood'],
