@@ -5,8 +5,10 @@ import {
   buildCompareTable,
   countArticles,
   getArticleBySlug,
+  getLinkIndex,
   getSlugForTitle,
   getTitleIndex,
+  saveTranslation,
   listArticles,
   listCategories,
   listCompareTabs,
@@ -130,6 +132,59 @@ describe('wiki reading layer', () => {
       expect(sword.c).toContain('Weapons');
       expect(sword.y).toBe('Sword');
       expect(sword.i).toMatch(/^https:\/\/static\.wikia\.nocookie\.net\//);
+    });
+  });
+
+  describe('link index', () => {
+    it('offers every English title as a term', async () => {
+      const index = await getLinkIndex(handle.db, 'en');
+      expect(index.map((e) => e.match).sort()).toEqual(PAGES.map((p) => p.title).sort());
+      expect(index.find((e) => e.match === 'Iron Sword')).toEqual({
+        match: 'Iron Sword',
+        slug: 'iron-sword',
+        title: 'Iron Sword',
+      });
+    });
+
+    it('adds the translated title once an article is translated', async () => {
+      const stored = (await getArticleBySlug(handle.db, 'iron-sword'))!;
+      await saveTranslation(handle.db, {
+        pageKey: stored.pageKey,
+        lang: 'es',
+        // Stored with its gloss, as the translator writes it.
+        title: 'Espada de hierro (Iron Sword)',
+        doc: stored.doc,
+        model: 'test',
+        sourceUpdatedAt: stored.updatedAt,
+      });
+
+      const index = await getLinkIndex(handle.db, 'es');
+      const sword = index.filter((e) => e.slug === 'iron-sword');
+      expect(sword.map((e) => e.match).sort()).toEqual(['Espada de hierro', 'Iron Sword']);
+      // Both point at the article by its Spanish name.
+      expect(sword.every((e) => e.title === 'Espada de hierro')).toBe(true);
+
+      // Untranslated articles still link by their English title only.
+      expect(index.filter((e) => e.slug === 'bonemass')).toEqual([
+        { match: 'Bonemass', slug: 'bonemass', title: 'Bonemass' },
+      ]);
+    });
+
+    it('keeps brackets that are part of the name', async () => {
+      const stored = (await getArticleBySlug(handle.db, 'deathsquito'))!;
+      await saveTranslation(handle.db, {
+        pageKey: stored.pageKey,
+        lang: 'es',
+        // No gloss here: the bracket is not the English title.
+        title: 'Deathsquito (variante)',
+        doc: stored.doc,
+        model: 'test',
+        sourceUpdatedAt: stored.updatedAt,
+      });
+
+      const index = await getLinkIndex(handle.db, 'es');
+      const found = index.filter((e) => e.slug === 'deathsquito').map((e) => e.match);
+      expect(found.sort()).toEqual(['Deathsquito', 'Deathsquito (variante)']);
     });
   });
 

@@ -6,6 +6,8 @@ import { AskButton } from '@/components/wiki/ask-button';
 import { TranslateOnView } from '@/components/wiki/translate-on-view';
 import { getDb } from '@/lib/db/client';
 import { getArticleBySlug, getIngredientTargets, getTranslation } from '@/lib/db/wiki-repo';
+import { cachedLinkIndex } from '@/lib/db/link-index';
+import { collectArticleLinks } from '@/lib/wiki/links';
 import { pairRecipeSources, recipeLookups } from '@/lib/wiki/recipe';
 import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
 import { strings } from '@/lib/i18n/strings';
@@ -67,20 +69,32 @@ export default async function ArticlePage({ params }: Params) {
 
   // Names come from the English article, always: a translation that dropped a
   // gloss should cost a parenthetical, not the icon and the link.
-  const found = await getIngredientTargets(db, recipeLookups(sourceGroups));
+  const [found, index] = await Promise.all([
+    getIngredientTargets(db, recipeLookups(sourceGroups)),
+    cachedLinkIndex(db, lang),
+  ]);
   const ingredientTargets = Object.fromEntries(found);
   const recipeSources = translation ? pairRecipeSources(groups, sourceGroups) : {};
+
+  /*
+   * Every other article this one names, so the names become links. Resolved
+   * here against the whole title list; the page carries only the handful of
+   * matches, and the component does the linking from those.
+   */
+  const links = collectArticleLinks({ doc, source: article.doc, index, selfSlug: article.slug });
 
   return (
     <>
       <ArticleView
         title={title}
+        slug={article.slug}
         url={article.url}
         categories={article.categories}
         doc={doc}
         lang={lang}
         ingredientTargets={ingredientTargets}
         recipeSources={recipeSources}
+        links={links}
       />
 
       {/*

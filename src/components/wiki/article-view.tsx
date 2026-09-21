@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import type {
   ArticleBlock,
@@ -10,7 +10,9 @@ import type {
 } from '@/lib/wiki/article-types';
 import { Gallery } from './gallery';
 import { Recipe } from './recipe';
+import { LinkedText } from './linked-text';
 import { isRecipeLabel } from '@/lib/wiki/recipe';
+import { buildLinker, type Linker, type LinkTarget } from '@/lib/wiki/links';
 import type { IngredientTarget } from '@/lib/db/wiki-repo';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { categoryHref } from '@/lib/routes';
@@ -24,14 +26,18 @@ import { categoryHref } from '@/lib/routes';
  */
 export function ArticleView({
   title,
+  slug,
   url,
   categories,
   doc,
   lang,
   ingredientTargets = {},
   recipeSources = {},
+  links = [],
 }: {
   title: string;
+  /** This article's own slug, so its name is never linked to itself. */
+  slug?: string;
   url: string;
   categories: string[];
   doc: ArticleDoc;
@@ -40,18 +46,26 @@ export function ArticleView({
   ingredientTargets?: Record<string, IngredientTarget>;
   /** Each translated recipe row paired with the English it came from. */
   recipeSources?: Record<string, string>;
+  /**
+   * The other articles this one mentions, resolved on the server. Every name
+   * in the text that matches one becomes a link to it.
+   */
+  links?: LinkTarget[];
 }) {
   const t = strings(lang);
   const tabs = doc.infobox?.tabs ?? [];
   const [tab, setTab] = useState(() => tabs[0]?.label ?? '');
   const activeTab = tabs.find((x) => x.label === tab) ?? tabs[0];
+  const linker = useMemo(() => buildLinker(links, { selfSlug: slug }), [links, slug]);
 
   return (
     <article className="pb-28">
-      <IdentityStrip title={title} doc={doc} lang={lang} />
+      <IdentityStrip title={title} doc={doc} lang={lang} linker={linker} />
 
       {doc.lead ? (
-        <p className="mt-4 max-w-[62ch] text-[0.975rem] leading-[1.7] text-birch/90">{doc.lead}</p>
+        <p className="mt-4 max-w-[62ch] text-[0.975rem] leading-[1.7] text-birch/90">
+          <LinkedText text={doc.lead} linker={linker} />
+        </p>
       ) : null}
 
       {tabs.length > 1 ? (
@@ -96,6 +110,7 @@ export function ArticleView({
               lang={lang}
               ingredientTargets={ingredientTargets}
               recipeSources={recipeSources}
+              linker={linker}
             />
           ))}
         </div>
@@ -103,7 +118,7 @@ export function ArticleView({
 
       {doc.blocks.length > 0 ? (
         <div data-testid="article-body" className="mt-8 flex flex-col gap-4">
-          <Blocks blocks={doc.blocks} />
+          <Blocks blocks={doc.blocks} linker={linker} />
         </div>
       ) : null}
 
@@ -138,11 +153,23 @@ export function ArticleView({
   );
 }
 
-function IdentityStrip({ title, doc, lang }: { title: string; doc: ArticleDoc; lang: Lang }) {
+function IdentityStrip({
+  title,
+  doc,
+  lang,
+  linker,
+}: {
+  title: string;
+  doc: ArticleDoc;
+  lang: Lang;
+  linker: Linker;
+}) {
   const t = strings(lang);
   const image = doc.infobox?.image;
   const { type, station, biome } = doc.facets;
-  const facets = [type, station ? `${t.wikiStation}: ${station}` : null, biome].filter(Boolean);
+  const facets = [type, station ? `${t.wikiStation}: ${station}` : null, biome].filter(
+    (f): f is string => Boolean(f),
+  );
 
   return (
     <header className="flex items-start gap-4">
@@ -164,7 +191,14 @@ function IdentityStrip({ title, doc, lang }: { title: string; doc: ArticleDoc; l
       <div className="min-w-0">
         <h1 className="display text-lg leading-tight text-birch">{title}</h1>
         {facets.length > 0 ? (
-          <p className="mt-1 font-mono text-[0.7rem] text-ash">{facets.join(' · ')}</p>
+          <p className="mt-1 font-mono text-[0.7rem] text-ash">
+            {facets.map((facet, i) => (
+              <span key={facet}>
+                {i > 0 ? ' · ' : ''}
+                <LinkedText text={facet} linker={linker} />
+              </span>
+            ))}
+          </p>
         ) : null}
       </div>
     </header>
@@ -207,11 +241,13 @@ function StatGroup({
   lang,
   ingredientTargets,
   recipeSources,
+  linker,
 }: {
   group: InfoboxGroup;
   lang: Lang;
   ingredientTargets: Record<string, IngredientTarget>;
   recipeSources: Record<string, string>;
+  linker: Linker;
 }) {
   return (
     <section>
@@ -254,7 +290,7 @@ function StatGroup({
                     : 'text-right font-mono text-[0.8rem] text-birch'
                 }
               >
-                {row.value}
+                <LinkedText text={row.value} linker={linker} />
               </dd>
             </div>
           );
@@ -264,7 +300,7 @@ function StatGroup({
   );
 }
 
-function Blocks({ blocks }: { blocks: ArticleBlock[] }) {
+function Blocks({ blocks, linker }: { blocks: ArticleBlock[]; linker: Linker }) {
   const out: React.ReactNode[] = [];
   let lastSection = '';
 
@@ -281,7 +317,7 @@ function Blocks({ blocks }: { blocks: ArticleBlock[] }) {
     if (block.kind === 'paragraph') {
       out.push(
         <p key={i} className="max-w-[62ch] text-[0.95rem] leading-[1.7] text-birch/90">
-          {block.text}
+          <LinkedText text={block.text} linker={linker} />
         </p>,
       );
       return;
@@ -292,14 +328,16 @@ function Blocks({ blocks }: { blocks: ArticleBlock[] }) {
       out.push(
         <Tag key={i} className="answer max-w-[62ch] text-[0.95rem] text-birch/90">
           {block.items.map((item, j) => (
-            <li key={j}>{item}</li>
+            <li key={j}>
+              <LinkedText text={item} linker={linker} />
+            </li>
           ))}
         </Tag>,
       );
       return;
     }
 
-    out.push(<DataTable key={i} block={block} />);
+    out.push(<DataTable key={i} block={block} linker={linker} />);
   });
 
   return <>{out}</>;
@@ -312,7 +350,7 @@ function Blocks({ blocks }: { blocks: ArticleBlock[] }) {
  * row stays identifiable while reading across — and the page itself never
  * scrolls sideways, which is the thing that makes a phone wiki unusable.
  */
-function DataTable({ block }: { block: TableBlock }) {
+function DataTable({ block, linker }: { block: TableBlock; linker: Linker }) {
   return (
     <figure className="my-1">
       {block.caption ? (
@@ -361,7 +399,7 @@ function DataTable({ block }: { block: TableBlock }) {
                       scope="row"
                       className="sticky left-0 z-10 whitespace-nowrap border-b border-moss/50 bg-bog px-3 py-2 text-left font-medium text-birch odd:bg-bog"
                     >
-                      {cell}
+                      <LinkedText text={cell} linker={linker} />
                     </th>
                   ) : (
                     <td
@@ -369,7 +407,7 @@ function DataTable({ block }: { block: TableBlock }) {
                       data-label={block.headers[j] ?? ''}
                       className="whitespace-nowrap border-b border-moss/50 px-3 py-2 font-mono text-birch/90"
                     >
-                      {cell}
+                      <LinkedText text={cell} linker={linker} />
                     </td>
                   ),
                 )}

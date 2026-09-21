@@ -106,6 +106,15 @@ identity strip and the stat rows come first, upgrade levels are a segmented
 control rather than four stacked tables, and wide tables scroll inside their own
 box with a pinned first column so the page never scrolls sideways.
 
+**Articles link to each other at render time.** The ingest keeps text, not
+markup, so the wiki's own cross-links do not survive it. Instead, every article
+title — and its Spanish title, once translated — is a term, and any term that
+appears whole in a page's prose, lists, tables or stat rows becomes a link. On
+a translated page each list item and cell is also paired by position with the
+English it came from, so `Especiero` links to Spice rack even when the
+translation dropped the gloss. The server resolves the mentions against the
+whole title list; the page carries only the handful it uses.
+
 **Search is split by what each half is good at.** The title index — 1,027
 entries, about 40 KB gzipped — is sent to the browser and filtered as you type:
 no request, no spinner, and it works offline. Full-text search over article
