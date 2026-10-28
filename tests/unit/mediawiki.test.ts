@@ -86,6 +86,29 @@ describe('MediaWikiClient.fetchPage', () => {
     expect(page!.categories).toEqual(['Swords']);
   });
 
+  it('leaves out the categories the wiki uses for its own upkeep', async () => {
+    // Not hidden on Fandom, so they reached the browse page as content.
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        parse: {
+          title: 'Birch',
+          pageid: 7,
+          revid: 1,
+          text: '',
+          categories: [
+            { category: 'Trees' },
+            { category: 'Work_in_progress' },
+            { category: 'Unfinished' },
+            { category: 'candidates for deletion' },
+            { category: 'Disambiguations' },
+          ],
+        },
+      }),
+    );
+    const page = await clientWith(fetchImpl as unknown as FetchLike).fetchPage(source, { pageId: 7, title: 'Birch' });
+    expect(page!.categories).toEqual(['Trees']);
+  });
+
   it('sends an identifying User-Agent, as the MediaWiki policy requires', async () => {
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) =>
       jsonResponse({ parse: { title: 'x', pageid: 1, revid: 1, text: '' } }),

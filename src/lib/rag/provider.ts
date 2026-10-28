@@ -112,16 +112,23 @@ function candidates(
  * provider is also down, a key that was out of credit ten minutes ago is still
  * worth one attempt — better a slow answer than a refusal based on stale
  * information.
+ *
+ * One pass with one clock reading. Asking `isTripped` twice per provider — once
+ * for each half — let a cooldown expire between the two questions: the
+ * provider counted as tripped for the first and live for the second, and fell
+ * out of the list entirely. With a single provider configured, that turned an
+ * expired cooldown into "every provider failed" without anything being tried.
  */
-function ordered(list: Candidate[]): Candidate[] {
-  const live = list.filter((c) => !isTripped(c.name));
-  const tripped = list.filter((c) => isTripped(c.name));
+export function orderByCircuit(list: Candidate[], now: number = Date.now()): Candidate[] {
+  const live: Candidate[] = [];
+  const tripped: Candidate[] = [];
+  for (const candidate of list) (isTripped(candidate.name, now) ? tripped : live).push(candidate);
   return [...live, ...tripped];
 }
 
 /** Models that generate the grounded answer, best first. */
 export function answerCandidates(): Candidate[] {
-  return ordered(
+  return orderByCircuit(
     candidates(
       GROK_ANSWER_MODEL,
       ANSWER_MODEL,
@@ -134,7 +141,7 @@ export function answerCandidates(): Candidate[] {
 
 /** Models that rewrite a question into search queries, best first. */
 export function rewriteCandidates(): Candidate[] {
-  return ordered(
+  return orderByCircuit(
     candidates(
       GROK_REWRITE_MODEL,
       REWRITE_MODEL,

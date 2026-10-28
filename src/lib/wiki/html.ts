@@ -1,6 +1,9 @@
 import * as cheerio from 'cheerio';
 import type { AnyNode, Element } from 'domhandler';
 import type { Section } from './types';
+import { collectText, lineText } from './dom-text';
+import { nestedTables, readNotice, readTableGrid } from './table';
+import { dropEmptyTabbers, dropTabLabels, isTabber, opensWithHeading, tabberPanels } from './tabber';
 import { cleanBlockText, cleanText } from './text';
 
 type Api = cheerio.CheerioAPI;
@@ -14,6 +17,8 @@ const NOISE_SELECTORS = [
   'script',
   'style',
   'aside.portable-infobox',
+  // Tabs between infoboxes ("Raw" / "Cooked"): only their labels would remain.
+  '.infobox-tabber',
   '.mw-editsection',
   'sup.reference',
   '.reference',
@@ -72,6 +77,8 @@ export async function extractSections(html: string): Promise<Section[]> {
   const root = inner.length > 0 ? inner : $('#wv-root');
 
   root.find(NOISE_SELECTORS).remove();
+  // What a tabbed infobox leaves once the infoboxes are gone: its tab labels.
+  dropEmptyTabbers($, root);
 
   const sections: Section[] = [];
   /** Heading stack: index 0 is the h2 level, 1 is h3, and so on. */
@@ -98,12 +105,17 @@ export async function extractSections(html: string): Promise<Section[]> {
 
   const isSkipped = (): boolean => stack.some((h) => SKIPPED_HEADINGS.has(h.toLowerCase()));
 
-  for (const node of root.contents().toArray()) {
+  /** Starts a section at the heading stack as it is now. */
+  const open = (): void => {
+    current = { path: stack.filter(Boolean).join(' > '), text: '', tables: [] };
+  };
+
+  const visit = (node: AnyNode): void => {
     if (node.type === 'text') {
       if (!isSkipped()) inline += node.data ?? '';
-      continue;
+      return;
     }
-    if (node.type !== 'tag') continue;
+    if (node.type !== 'tag') return;
 
     const el = node as Element;
     const tag = el.tagName?.toLowerCase() ?? '';
@@ -114,41 +126,87 @@ export async function extractSections(html: string): Promise<Section[]> {
       const heading = cleanText(headingText($, el));
       stack.length = Math.max(0, level);
       stack[level] = heading;
-      current = { path: stack.filter(Boolean).join(' > '), text: '', tables: [] };
-      continue;
+      open();
+      return;
     }
 
-    if (isSkipped()) continue;
+    if (isSkipped()) return;
 
     if (tag === 'br') {
       inline += '\n';
-      continue;
+      return;
     }
 
     if (INLINE_TAGS.has(tag)) {
-      inline += $(el).text();
-      continue;
+      inline += collectText(el, { keepSourceBreaks: true });
+      return;
     }
 
     // From here on the element is block-level, so the inline run ends.
     flushInline();
 
-    if (tag === 'table') {
-      const flat = flattenTable($, $(el));
-      if (flat) current.tables.push(flat);
-      continue;
+    const tabs = isTabber(el) ? tabberPanels($, el) : [];
+    if (tabs.length > 0) {
+      readTabs(tabs);
+      return;
     }
+    // A tabber deeper inside is read as one run of text: without its labels.
+    dropTabLabels($, el);
 
-    // Tables nested inside a wrapper div still count as tables.
-    for (const t of $(el).find('table').toArray()) {
-      const flat = flattenTable($, $(t));
+    // Tables, including those nested inside a wrapper div or inside another
+    // table's cells, each count as a table of their own.
+    const outermost =
+      tag === 'table'
+        ? [el]
+        : ($(el).find('table').toArray() as Element[]).filter((t) => $(t).parentsUntil(el, 'table').length === 0);
+    const withNested = (t: Element): Element[] => [t, ...nestedTables($, t).flatMap(withNested)];
+    for (const table of outermost.flatMap(withNested)) {
+      // A status banner ("This article is about removed content") is a
+      // sentence about the article, so it is prose; a maintenance banner is
+      // nothing at all.
+      const notice = readNotice($, table);
+      if (notice) {
+        if (notice.kind !== 'maintenance') prose.push(notice.text);
+        continue;
+      }
+      const flat = flattenTable($, $(table));
       if (flat) current.tables.push(flat);
     }
+    if (tag === 'table') return;
     $(el).find('table').remove();
 
-    const text = cleanBlockText($(el).text());
+    const text = lineText(el, { keepSourceBreaks: true });
     if (text) prose.push(text);
-  }
+  };
+
+  /*
+   * A tabber in the body, tab by tab, as the reading document reads it
+   * (article.ts): each tab is a section of its own — its own heading, or its
+   * label one level below the tabber's section — so a table says which
+   * quality level it lists ("Armor pieces > Quality 3"), and the labels are
+   * never prose. What follows the tabber is the tabber's section again.
+   */
+  const readTabs = (tabs: { label: string; panel: Element }[]): void => {
+    // A copy with its holes (an h4 under an h2 leaves one), which a spread would fill.
+    const outer = stack.slice();
+    for (const { label, panel } of tabs) {
+      if (label && !opensWithHeading(panel)) {
+        flush();
+        stack.push(label);
+        open();
+      }
+      for (const child of panel.children) visit(child);
+      flush();
+      stack.length = 0;
+      outer.forEach((heading, level) => {
+        stack[level] = heading;
+      });
+      stack.length = outer.length;
+      open();
+    }
+  };
+
+  for (const node of root.contents().toArray()) visit(node);
   flush();
 
   return sections;
@@ -169,57 +227,51 @@ function headingText($: Api, el: Element): string {
  * Reading a table as plain text yields a run of headers followed by a run of
  * values, which is unusable in a RAG context — a question about the damage of
  * one sword would retrieve a blob where no number is attached to any weapon.
+ *
+ * The grid comes from the same reader as the article's tables, so spans are
+ * applied before any value is paired with a header: reading cells by
+ * position told the index that a bow's "Spread" was its velocity.
  */
 export function flattenTable($: Api, $table: cheerio.Cheerio<AnyNode>): string {
-  const el = $table.get(0);
+  const el = $table.get(0) as Element | undefined;
   if (!el) return '';
-  const cls = (el as Element).attribs?.['class'] ?? '';
+  const cls = el.attribs?.['class'] ?? '';
   if (/navbox|toc|collapsible-toggle/.test(cls)) return '';
+  if (readNotice($, el)) return '';
 
-  const caption = cleanText($table.children('caption').first().text());
-  const rows = $table.find('tr').toArray();
+  const grid = readTableGrid($, el);
+  if (!grid) return '';
 
-  let headers: string[] = [];
+  const groups = new Set(grid.groupRows);
   let groupLabel = '';
   const lines: string[] = [];
 
-  for (const row of rows) {
-    const $row = $(row);
-    const cells = $row.children('th, td').toArray();
-    if (cells.length === 0) continue;
-
-    const isHeaderRow = cells.every((c) => (c as Element).tagName?.toLowerCase() === 'th');
-    const values = cells.map((c) => cleanText($(c).text()));
-
-    // A lone `th` spanning the table is a sub-heading for the rows beneath it.
-    if (isHeaderRow && cells.length === 1) {
-      groupLabel = values[0] ?? '';
-      continue;
+  grid.rows.forEach((row, r) => {
+    // A full-width row is a sub-heading for the rows beneath it.
+    if (groups.has(r)) {
+      groupLabel = oneLine(row[0] ?? '');
+      return;
     }
-
-    if (isHeaderRow && headers.length === 0) {
-      headers = values;
-      continue;
-    }
-    if (isHeaderRow) {
-      // A repeated header row inside a long table: refresh and move on.
-      headers = values;
-      continue;
-    }
-
     const pairs: string[] = [];
-    for (let i = 0; i < values.length; i += 1) {
-      const value = values[i] ?? '';
-      // Icon columns are empty once the image is stripped; a bare "Icon:" adds
-      // nothing but tokens.
-      if (!value) continue;
-      const header = headers[i] ?? '';
-      pairs.push(header ? `${header}: ${value}` : value);
-    }
-    if (pairs.length === 0) continue;
-    lines.push([groupLabel, pairs.join('; ')].filter(Boolean).join(' — '));
-  }
+    row.forEach((value, c) => {
+      // Icon columns are already gone; an empty cell adds nothing but tokens.
+      if (!value) return;
+      const header = grid.headers[c] ?? '';
+      pairs.push(header ? `${header}: ${oneLine(value)}` : oneLine(value));
+    });
+    if (pairs.length > 0) lines.push([groupLabel, pairs.join('; ')].filter(Boolean).join(' — '));
+  });
 
   if (lines.length === 0) return '';
-  return [caption, ...lines].filter(Boolean).join('\n');
+  return [grid.caption, ...lines].filter(Boolean).join('\n');
+}
+
+/**
+ * A cell's lines as one run: "10 Wood, 8 Iron, 4 Root". A row is one line of
+ * the flattened table and the chunker splits tables on lines, so a cell's own
+ * breaks cannot survive; commas keep its entries apart where "; " already
+ * separates the cells. A line that ends a sentence needs no comma after it.
+ */
+function oneLine(value: string): string {
+  return value.replace(/([.!?…])\n/g, '$1 ').replace(/\n/g, ', ');
 }

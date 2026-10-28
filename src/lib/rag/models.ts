@@ -117,3 +117,49 @@ export const CEREBRAS_ANSWER_MODEL = process.env.CEREBRAS_ANSWER_MODEL ?? 'gpt-o
 
 /** Rewrites a question into search queries. */
 export const CEREBRAS_REWRITE_MODEL = process.env.CEREBRAS_REWRITE_MODEL ?? 'gpt-oss-120b';
+
+/*
+ * Deadlines and ceilings.
+ *
+ * Node's fetch gives up on a silent provider after 300 seconds, per provider,
+ * and never on one that keeps the connection alive with SSE comments. That is
+ * not a timeout a reader can wait out, and it kept the fallback chain from
+ * ever engaging. So every model call carries its own deadline, and missing it
+ * moves on to the next provider (or, for a reader's own key, ends the answer
+ * with a timeout the reader can retry).
+ *
+ * The first-text deadline is generous on purpose: it covers connecting, the
+ * prompt's time in the provider's queue and any thinking before the first
+ * word. The default models answer in about a second; `gemini-3.6-flash`
+ * measured 43 s above, so a deployment that selects a thinking model should
+ * raise it.
+ */
+
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+/** Until the first word of an answer, per provider. */
+export const FIRST_TEXT_TIMEOUT_MS = envMs('CHAT_FIRST_TEXT_TIMEOUT_MS', 15_000);
+
+/** Between two pieces of an answer once it is flowing. */
+export const CHUNK_TIMEOUT_MS = envMs('CHAT_CHUNK_TIMEOUT_MS', 20_000);
+
+/** One provider's attempt at rewriting a question into search queries. */
+export const REWRITE_ATTEMPT_TIMEOUT_MS = envMs('CHAT_REWRITE_TIMEOUT_MS', 6_000);
+
+/**
+ * The whole rewrite, every provider included. Past it the raw question is
+ * searched instead: a slower or slightly worse answer beats none.
+ */
+export const REWRITE_TOTAL_TIMEOUT_MS = envMs('CHAT_REWRITE_TOTAL_TIMEOUT_MS', 10_000);
+
+/**
+ * Output ceiling for one answer. Grounded answers run a few hundred tokens;
+ * this only bounds a runaway generation. Room is left for the reasoning
+ * tokens gpt-oss spends before it writes, which count against the same limit.
+ */
+export const MAX_ANSWER_TOKENS = 4096;

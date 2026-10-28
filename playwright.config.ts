@@ -1,6 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 3100;
+/*
+ * Against `next dev`, set E2E_BASE_URL=http://localhost:3100: the dev server
+ * refuses its hot-reload socket to any other host, and without it no page
+ * hydrates. A production build answers on either.
+ */
+const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -13,7 +19,7 @@ export default defineConfig({
   expect: { timeout: 20_000 },
 
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: BASE_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -39,7 +45,7 @@ export default defineConfig({
     // Production build: dev-mode compilation makes the first navigation slow
     // enough to look like a hang, and this is the artifact that ships anyway.
     command: `pnpm build && pnpm start --port ${PORT}`,
-    url: `http://127.0.0.1:${PORT}/login`,
+    url: `${BASE_URL}/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
     stdout: 'pipe',

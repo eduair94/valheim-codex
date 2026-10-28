@@ -1,7 +1,7 @@
 import './_env';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { hashPassword } from '../src/lib/auth/password';
+import { hashPassword, MIN_PASSWORD_LENGTH } from '../src/lib/auth/password';
 
 /**
  * Writes the auth secrets into the deployment `.env`, without printing them.
@@ -21,10 +21,10 @@ if (!password) {
   console.error('usage: pnpm server:password "<password>" [env-file]');
   process.exit(1);
 }
-if (password.length < 12) {
+if (password.length < MIN_PASSWORD_LENGTH) {
   console.error(
     `That password is ${password.length} characters. It is the only thing between the internet ` +
-      'and this app — use at least 12.',
+      `and this app — use at least ${MIN_PASSWORD_LENGTH}.`,
   );
   process.exit(1);
 }
@@ -45,4 +45,8 @@ const updated = `${withoutOld.trimEnd()}\nAPP_PASSWORD_HASH=${hash}\nSESSION_SEC
 writeFileSync(envPath, updated.trimStart(), { mode: 0o600 });
 
 console.log(`Wrote APP_PASSWORD_HASH and SESSION_SECRET to ${envPath}. Neither was printed.`);
-console.log('Rotating SESSION_SECRET signs everyone out, which is the point of re-running this.');
+console.log('Recreate the app for them to take effect: `docker compose up -d`.');
+console.log('`docker compose restart` will NOT pick them up — env_file is read at create time.');
+console.log('Rotating SESSION_SECRET signs everyone out, which is the point of re-running this — Puter readers');
+console.log('included. Without BYOK_SECRET, readers on their own Gemini key are signed out too, and start an');
+console.log('empty history: the old one cannot be found again.');

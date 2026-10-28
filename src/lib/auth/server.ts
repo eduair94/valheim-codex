@@ -1,18 +1,23 @@
 import 'server-only';
 
 import { cookies } from 'next/headers';
+import { sessionSecret } from './secrets';
 import { SESSION_COOKIE, verifySessionToken, type SessionPayload } from './session';
 
 /**
- * Reads and verifies the session from the request cookies.
+ * Reads and verifies the password session from the request cookies.
  *
- * Every page and route handler calls this for itself. The middleware also
- * checks the cookie, but only to redirect: middleware is a routing concern and
- * has been bypassable in the past (CVE-2025-29927), so it is never the only
- * thing standing between a request and the data.
+ * Password holders only — the one kind of sign-in allowed to spend the
+ * operator's model budget. Code that serves any signed-in reader (own Gemini
+ * key, Puter) uses `getChatPrincipal()` instead.
+ *
+ * Every page and route handler calls this for itself. The proxy also checks
+ * the cookies, but only to route: it is a routing concern and its middleware
+ * form has been bypassable in the past (CVE-2025-29927), so it is never the
+ * only thing standing between a request and the data.
  */
 export async function getSession(): Promise<SessionPayload | null> {
-  const secret = process.env.SESSION_SECRET;
+  const secret = sessionSecret();
   if (!secret) return null;
   const store = await cookies();
   return verifySessionToken(store.get(SESSION_COOKIE)?.value, secret);

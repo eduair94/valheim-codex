@@ -1,106 +1,166 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { rune } from '@/lib/i18n/strings';
+import { rune, strings, type Lang } from '@/lib/i18n/strings';
+import type { Biome } from './guide-data';
+import { itemTarget } from './guide-links';
+import { guideRequest } from './guide-request';
+
+/** The same passage in both languages. */
+export type Bi<T = ReactNode> = Readonly<Record<Lang, T>>;
+
+/** The hidden sentence every external chip points at, instead of three hundred `title`s. */
+export const EXTERNAL_HINT_ID = 'guide-external-hint';
 
 /**
  * A game item/creature/structure name, set exactly as it appears in-game.
  *
  * The reader asked for English names inside Spanish prose so they can match
- * what the game itself shows them — the monospace treatment is what makes
- * that name jump out of a sentence instead of reading as a typo.
+ * what the game itself shows them — the monospace chip is what makes that
+ * name jump out of a sentence instead of reading as a typo. In Spanish it is
+ * marked `lang="en"` too, so a screen reader says "Black Forest" in English
+ * rather than spelling it out with Spanish vowels.
  *
- * Linked to the original wiki's search rather than a guessed `/wiki/<Name>`
- * URL: this guide's own research hit real article titles that only
- * capitalise the first word (`Giant_remains`, `Seeker_brood`, `Galdr_table`)
- * right alongside others that capitalise every word (`Artisan_Table`,
- * `Black_Marble`) — there is no rule to reproduce from ~190 names typed once
- * each, and a guessed exact-case URL that misses is a dead page. Search
- * always lands on something useful, usually the article itself.
+ * One element and one short class (`.g-item`, in guide.css): the page holds
+ * about three hundred chips, and every attribute on one of them is paid for
+ * three hundred times over, twice — once in the HTML, once in the payload React
+ * hydrates from. The original wiki is said once, by `EXTERNAL_HINT_ID`, rather
+ * than in a `title` per chip.
+ *
+ * The link goes to the Codex's own article when there is one (`itemTarget`).
+ * Not prefetched on sight: a chip scrolled past is not a page the reader is
+ * about to open, and three hundred of them would each fetch one. The guide's
+ * body fetches a chip's article once the reader points at, touches or tabs
+ * to it (`IntentPrefetch`, guide-content.tsx).
  */
-export function Item({ children, link = true }: { children: ReactNode; link?: boolean }) {
-  const chip = (
-    <code className="whitespace-nowrap rounded-sm bg-moss/50 px-1 py-0.5 font-mono text-[0.85em] text-forge">
+export function Item({
+  children,
+  article,
+  link = true,
+}: {
+  children: string;
+  /** The article this mention means, when it differs from the name (`Root` → `Root (item)`). */
+  article?: string;
+  link?: boolean;
+}) {
+  const { lang, links } = guideRequest();
+  if (!link) return <span className="g-item">{children}</span>;
+
+  const nameLang = lang === 'en' ? undefined : 'en';
+  const target = itemTarget(children, links, article);
+  return target.internal ? (
+    <Link href={target.href} prefetch={false} lang={nameLang} className="g-item">
       {children}
-    </code>
-  );
-  if (!link || typeof children !== 'string') return chip;
-  return (
+    </Link>
+  ) : (
     <a
-      href={`https://valheim.fandom.com/wiki/Special:Search?query=${encodeURIComponent(children)}`}
+      href={target.href}
       target="_blank"
       rel="noopener noreferrer"
-      className="no-underline transition-opacity hover:opacity-80"
-      title="Ver en la wiki original"
+      lang={nameLang}
+      aria-describedby={EXTERNAL_HINT_ID}
+      className="g-item"
     >
-      {chip}
+      {children}
     </a>
+  );
+}
+
+/** A note set apart from the prose: `warn` for what costs a death, `note` for the rest. */
+export function Callout({ tone = 'note', children }: { tone?: 'note' | 'warn'; children: ReactNode }) {
+  return (
+    <p className="g-callout" data-tone={tone === 'warn' ? tone : undefined}>
+      {children}
+    </p>
   );
 }
 
 /**
  * A small labelled fact table — the boss card: how to summon it, what its
- * altar power does, what it drops. Same shape as `StatGroup` in
- * `article-view.tsx`, reused here rather than reinvented.
+ * altar power does, what it drops.
+ *
+ * Label column and value column, both left-aligned. The values here are
+ * sentences ("2× Deer Trophy on the altar (its Vegvisir…)"), and a sentence
+ * set right-aligned in a narrow column — how this card used to read — has a
+ * ragged left edge the eye has to hunt for on every line.
  */
 export function GuideStatCard({
+  kicker,
   title,
   rows,
 }: {
+  /** One word in label caps ("Jefe"); the name itself is set in the reading face, at any length. */
+  kicker: string;
   title: ReactNode;
   rows: { label: string; value: ReactNode }[];
 }) {
   return (
-    <section className="mt-3">
-      <h4 className="label mb-1.5 text-forge">{title}</h4>
-      <dl className="overflow-hidden rounded-md border border-moss">
-        {rows.map((row, i) => (
-          <div
-            key={i}
-            className="flex flex-col gap-1 border-b border-moss/60 px-3 py-2 last:border-b-0 odd:bg-peat/40 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
-          >
-            <dt className="shrink-0 text-sm text-ash">{row.label}</dt>
-            <dd className="text-[0.85rem] leading-snug text-birch sm:text-right">{row.value}</dd>
+    <div className="g-card">
+      <h4>
+        <span className="label text-forge">{kicker}</span> <span className="g-card-title">{title}</span>
+      </h4>
+      <dl className="g-stats">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
           </div>
         ))}
       </dl>
-    </section>
+    </div>
   );
 }
 
+export type GuideTableRow = { head: ReactNode; cells: ReactNode[] };
+
 /**
- * A wide table on a narrow screen — headers/rows in, `DataTable`'s exact
- * stacking behaviour out. Kept separate from `DataTable` because that one is
- * bound to `TableBlock`, the DB-backed article shape; this guide is hand
- * written and has no `ArticleDoc` behind it.
+ * A small table that turns into cards on a phone.
+ *
+ * The phone cards come from the shared `.stack-table` / `.stack-scroller`
+ * rules (`tables.css`), the same ones the article tables use, so the whole
+ * app has one way of presenting a row on a narrow screen. The first cell is
+ * the row's header, which is what becomes the card's title there, and every
+ * other cell carries its column's name in `data-label`.
+ *
+ * Unlike an article's table, these wrap instead of scrolling: the guide's
+ * cells are short sentences, written for this page, so they always fit the
+ * column. That is also why there is no focusable scroll region here — a tab
+ * stop that scrolls nothing is just one more key press between the reader
+ * and the next link.
+ *
+ * Each cell's content sits in one span. On a phone a cell becomes a two-column
+ * grid (label, value), and every direct child of a grid is a cell of its own:
+ * "Thungr + Zil" would put "+" on a row by itself under the label, and a lone
+ * chip would stretch to the width of the column.
  */
 export function GuideTable({
   caption,
   headers,
   rows,
+  numeric = [],
+  keep = [],
+  compact = false,
 }: {
-  caption?: string;
-  headers: string[];
-  rows: ReactNode[][];
+  caption: string;
+  headers: readonly string[];
+  rows: GuideTableRow[];
+  /** Columns of plain numbers, set in tabular figures. */
+  numeric?: number[];
+  /** Columns of short names that read wrong broken in two ("Black / Forest"). */
+  keep?: number[];
+  /** A few short columns: the table takes the width it needs instead of the column's. */
+  compact?: boolean;
 }) {
+  const cellClass = (i: number) =>
+    [numeric.includes(i) ? 'g-num' : '', keep.includes(i) ? 'g-keep' : ''].join(' ').trim() || undefined;
   return (
-    <figure className="my-1">
-      {caption ? <figcaption className="label mb-1.5">{caption}</figcaption> : null}
-      <div
-        tabIndex={0}
-        role="region"
-        aria-label={caption ?? 'Tabla'}
-        className="stack-scroller overflow-x-auto rounded-md border border-moss"
-      >
-        <table className="stack-table w-full border-collapse text-left text-[0.8rem]">
+    <figure className="g-table" data-compact={compact ? '' : undefined}>
+      <figcaption>{caption}</figcaption>
+      <div className="stack-scroller">
+        <table className="stack-table">
           <thead>
-            <tr className="bg-peat">
+            <tr>
               {headers.map((h, i) => (
-                <th
-                  key={i}
-                  scope="col"
-                  className={`whitespace-nowrap border-b border-moss px-3 py-2 font-mono text-[0.68rem] uppercase tracking-wider text-ash ${
-                    i === 0 ? 'sticky left-0 z-10 bg-peat' : ''
-                  }`}
-                >
+                <th key={h} scope="col" className={cellClass(i)}>
                   {h}
                 </th>
               ))}
@@ -108,26 +168,13 @@ export function GuideTable({
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i} className="odd:bg-peat/30">
-                {row.map((cell, j) =>
-                  j === 0 ? (
-                    <th
-                      key={j}
-                      scope="row"
-                      className="sticky left-0 z-10 whitespace-nowrap border-b border-moss/50 bg-bog px-3 py-2 text-left font-medium text-birch odd:bg-bog"
-                    >
-                      {cell}
-                    </th>
-                  ) : (
-                    <td
-                      key={j}
-                      data-label={headers[j] ?? ''}
-                      className="whitespace-nowrap border-b border-moss/50 px-3 py-2 font-mono text-birch/90"
-                    >
-                      {cell}
-                    </td>
-                  ),
-                )}
+              <tr key={i}>
+                <th scope="row">{row.head}</th>
+                {row.cells.map((cell, j) => (
+                  <td key={j} data-label={headers[j + 1]} className={cellClass(j + 1)}>
+                    <span>{cell}</span>
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -137,59 +184,33 @@ export function GuideTable({
   );
 }
 
-export type ChecklistItem = { id: string; label: ReactNode; note?: ReactNode };
+export type ChecklistEntry = { id: string; label: Bi; note?: Bi };
 
 /**
  * A checkable list, for the things a completionist run actually has to do.
  *
- * Plain native checkboxes rather than a stateful component: nothing here
- * needs to survive a reload to be useful mid-session, and a native checkbox
- * needs no client JavaScript at all, which keeps this whole page a server
- * component.
+ * Native checkboxes, each inside its label so the whole row is the target —
+ * a 16px box is not something to aim for with a thumb mid-game. The ids are
+ * stable and shared by both languages; `GuideProgress` keys the saved ticks
+ * on them.
  */
-export function GuideChecklist({ items }: { items: ChecklistItem[] }) {
+export function GuideChecklist({ items, lang }: { items: readonly ChecklistEntry[]; lang: Lang }) {
   return (
-    <ul className="mt-1 mb-3 flex flex-col gap-2">
+    <ul className="g-checks">
       {items.map((item) => (
-        <li key={item.id} className="flex items-start gap-2.5">
-          <input type="checkbox" id={item.id} className="mt-1 h-4 w-4 shrink-0 accent-forge" />
-          <label htmlFor={item.id} className="text-[0.95rem] leading-snug text-birch">
-            {item.label}
-            {item.note ? <span className="mt-0.5 block text-[0.78rem] text-ash">{item.note}</span> : null}
+        <li key={item.id}>
+          <label className="g-check">
+            <input type="checkbox" id={item.id} />
+            <span>
+              {item.label[lang]}
+              {item.note ? <span className="g-note">{item.note[lang]}</span> : null}
+            </span>
           </label>
         </li>
       ))}
     </ul>
   );
 }
-
-/** A section heading in the app's carved-caps display face. */
-export function GuideH2({ id, children }: { id?: string; children: ReactNode }) {
-  return (
-    <h2 id={id} className="display scroll-mt-4 text-lg text-birch">
-      {children}
-    </h2>
-  );
-}
-
-/** A subsection label, mono/uppercase, matching `.label` used across the wiki. */
-export function GuideH3({ children }: { children: ReactNode }) {
-  return <h3 className="label mt-5 mb-1.5 text-birch/90">{children}</h3>;
-}
-
-export type BiomeData = {
-  id: string;
-  name: string;
-  tag: string;
-  desc: ReactNode;
-  resources: ChecklistItem[];
-  structures: ChecklistItem[];
-  enemies: ReactNode;
-  crafting: ReactNode;
-  boss: { name: ReactNode; rows: { label: string; value: ReactNode }[] };
-  extra?: { label: string; items: ChecklistItem[] };
-  callout?: ReactNode;
-};
 
 /**
  * One biome, rendered the same way every time.
@@ -198,42 +219,50 @@ export type BiomeData = {
  * crafting, boss — so the reader learns the layout once in Meadows and can
  * skim the rest by position instead of re-reading labels each time.
  */
-export function BiomeChapter({ index, biome }: { index: number; biome: BiomeData }) {
+export function BiomeChapter({ index, biome, lang }: { index: number; biome: Biome; lang: Lang }) {
+  const t = strings(lang);
+  const nameLang = lang === 'en' ? undefined : 'en';
   return (
-    <section id={biome.id} className="scroll-mt-4 border-t border-moss pt-6 first:border-t-0 first:pt-0">
-      <div className="flex items-baseline gap-2.5">
-        <span aria-hidden="true" className="font-mono text-sm text-forge/80">
+    <section id={biome.id} className="g-chapter">
+      <div className="g-chapter-head">
+        <span aria-hidden="true" className="g-rune">
           {rune(index)}
         </span>
-        <h3 className="display text-base text-birch">{biome.name}</h3>
-        <span className="font-mono text-[0.65rem] tracking-wider text-ash uppercase">{biome.tag}</span>
+        <h3 lang={nameLang} className="display">
+          {biome.name}
+        </h3>
+        <span className="label">{biome.tag[lang]}</span>
       </div>
-      <p className="answer mt-1.5 mb-3 text-[0.92rem] text-ash">{biome.desc}</p>
+      <p className="g-lede">{biome.desc[lang]}</p>
 
-      <GuideH3>Recursos para farmear</GuideH3>
-      <GuideChecklist items={biome.resources} />
+      <h4 className="label g-h4">{t.guideResources}</h4>
+      <GuideChecklist items={biome.resources} lang={lang} />
 
-      <GuideH3>Estructuras y mazmorras</GuideH3>
-      <GuideChecklist items={biome.structures} />
+      <h4 className="label g-h4">{t.guideStructures}</h4>
+      <GuideChecklist items={biome.structures} lang={lang} />
 
-      <GuideH3>Enemigos notables</GuideH3>
-      <p className="answer text-[0.92rem]">{biome.enemies}</p>
+      <h4 className="label g-h4">{t.guideEnemies}</h4>
+      <p className="g-prose">{biome.enemies[lang]}</p>
 
-      <GuideH3>Crafteo</GuideH3>
-      <div className="answer text-[0.92rem]">{biome.crafting}</div>
+      <h4 className="label g-h4">{t.guideCrafting}</h4>
+      <p className="g-prose">{biome.crafting[lang]}</p>
 
-      {biome.callout ? (
-        <p className="mt-3 rounded-md border border-blood/40 bg-blood/10 px-3 py-2 text-[0.85rem] leading-snug text-birch/90">
-          {biome.callout}
-        </p>
-      ) : null}
+      {biome.callout ? <Callout tone={biome.calloutTone}>{biome.callout[lang]}</Callout> : null}
 
-      <GuideStatCard title={<>Jefe — {biome.boss.name}</>} rows={biome.boss.rows} />
+      <GuideStatCard
+        kicker={t.guideBoss}
+        title={<span lang={nameLang}>{biome.boss.name}</span>}
+        rows={[
+          { label: t.guideSummon, value: biome.boss.summon[lang] },
+          { label: t.guidePower, value: biome.boss.power[lang] },
+          { label: t.guideDrops, value: biome.boss.drops[lang] },
+        ]}
+      />
 
       {biome.extra ? (
         <>
-          <GuideH3>{biome.extra.label}</GuideH3>
-          <GuideChecklist items={biome.extra.items} />
+          <h4 className="label g-h4">{biome.extra.label[lang]}</h4>
+          <GuideChecklist items={biome.extra.items} lang={lang} />
         </>
       ) : null}
     </section>

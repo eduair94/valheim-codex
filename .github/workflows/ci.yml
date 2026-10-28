@@ -5,24 +5,51 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    env:
+      # The `secrets` context is not allowed in a step's `if:` — GitHub rejects
+      # the whole file ("workflow file issue") and CI never starts, which is
+      # what happened on every run since this step was added. The job states
+      # only whether the secret exists; the step that needs its value maps it
+      # itself, so no other step (installs included) ever sees it.
+      HAS_EVAL_DATABASE: ${{ secrets.EVAL_DATABASE_URL != '' }}
+
+    # Actions pinned to full commit SHAs, as in ingest.yml and for the same
+    # reason: the eval step below holds a database credential.
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          version: 9
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      # No `version:` here: pnpm/action-setup reads `packageManager` from
+      # package.json, and naming a version as well fails the job with
+      # "Multiple versions of pnpm specified".
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Fails on critical advisories in what the production image ships.
+      # Critical rather than high: the remaining high advisories are all in
+      # @huggingface/transformers' own dependencies — its sharp (the app only
+      # embeds text, so no image ever reaches it) and onnxruntime-node's
+      # adm-zip (used when the runtime is installed) — plus the pinned
+      # puter.js SDK's postal-mime, and none of their parents accepts a fixed
+      # version yet. Gating on high would fail every build on findings nobody
+      # can act on; raise it once they can be.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=critical
 
       - run: pnpm typecheck
       - run: pnpm lint
@@ -39,9 +66,17 @@ jobs:
       # Retrieval quality, measured without the LLM rewrite: no API key, no
       # quota, and it exercises the deterministic path the app falls back to.
       # Skipped when there is no index to measure against.
+      - name: Cache the embedding model
+        if: env.HAS_EVAL_DATABASE == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .model-cache
+          key: embedding-model-${{ runner.os }}-${{ hashFiles('src/lib/rag/embed-local.ts', 'pnpm-lock.yaml') }}
+
       - name: Retrieval quality
-        if: ${{ secrets.EVAL_DATABASE_URL != '' }}
+        if: env.HAS_EVAL_DATABASE == 'true'
         env:
           DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
           EMBEDDING_PROVIDER: local
+          MODEL_CACHE_DIR: ${{ github.workspace }}/.model-cache
         run: pnpm eval --no-rewrite

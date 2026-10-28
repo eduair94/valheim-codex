@@ -1,0 +1,18 @@
+# Keeps the commit pins in .github/workflows current.
+#
+# Every action there is pinned to a full commit SHA, with the release it came
+# from in a comment, because a tag is whatever commit the action's owner
+# points it at next — and the ingest job holds the production database's
+# owner credential. Pins nobody updates go stale, so Dependabot proposes each
+# new release as a pull request (SHA and comment together), and CI checks it
+# like any other change.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One pull request a week for all of them, rather than one per action.
+      actions:
+        patterns: ['*']

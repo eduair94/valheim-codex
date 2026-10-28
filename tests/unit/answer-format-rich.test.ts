@@ -59,9 +59,14 @@ describe('images', () => {
     expect(blocks[1]).toEqual({ type: 'image', n: 2 });
   });
 
-  it('leaves an inline mention as text, because only a whole line is a figure', () => {
+  it('lifts an inline marker out of the sentence and places the figure after it', () => {
+    // Left in place it rendered as the literal text "[img:2]"; a figure in
+    // the middle of a sentence would read as a hole in it.
     const blocks = parseAnswer('Mirá la imagen [img:2] de arriba.');
-    expect(blocks[0]?.type).toBe('paragraph');
+    expect(blocks).toEqual([
+      { type: 'paragraph', segments: [{ type: 'text', text: 'Mirá la imagen de arriba.' }] },
+      { type: 'image', n: 2 },
+    ]);
   });
 
   it('still parses ordinary citations, which look almost identical', () => {

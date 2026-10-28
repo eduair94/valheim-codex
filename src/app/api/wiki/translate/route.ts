@@ -1,82 +1,31 @@
-import { getSession } from '@/lib/auth/server';
+import { revalidateTag } from 'next/cache';
+import { getChatPrincipal } from '@/lib/auth/principal-server';
 import { getDb } from '@/lib/db/client';
-import { getArticleBySlug, getTranslation, saveTranslation } from '@/lib/db/wiki-repo';
-import { translateArticle } from '@/lib/wiki/translate';
+import { handleTranslateGet, handleTranslatePost, type TranslateDeps } from './handler';
 
 export const runtime = 'nodejs';
 
 /**
- * A Spanish version of an article, translated once and then served from cache.
- *
- * Reading a translation is public, like the rest of the reader. Creating one
- * is not: it spends model tokens on the operator's account, which is the same
- * exposure the password exists to contain on the chat. So an anonymous visitor
- * gets whatever has already been translated and English otherwise, and a
- * signed-in reader browsing in Spanish warms the cache for everyone.
- *
- * The cost of the whole feature is therefore bounded by the articles people
- * actually open, once each, rather than by traffic.
+ * `GET` reads a stored translation, `POST` creates or refreshes one. The
+ * reasoning lives in `handler.ts`; this file only supplies the request-bound
+ * dependencies, which a test cannot construct.
  */
-
-/** Languages worth translating into. English is the source and needs no entry. */
-const SUPPORTED = new Set(['es']);
-
-export async function GET(request: Request): Promise<Response> {
-  const params = new URL(request.url).searchParams;
-  const slug = params.get('slug')?.slice(0, 200) ?? '';
-  const lang = params.get('lang')?.slice(0, 8) ?? '';
-
-  if (!slug || !SUPPORTED.has(lang)) {
-    return Response.json({ error: 'bad_request' }, { status: 400 });
-  }
-
-  const db = await getDb();
-  const article = await getArticleBySlug(db, slug);
-  if (!article) return Response.json({ error: 'not_found' }, { status: 404 });
-
-  const cached = await getTranslation(db, article.pageKey, lang);
-
+const deps: TranslateDeps = {
+  db: getDb,
+  principal: getChatPrincipal,
   /*
-   * A stale translation is still served rather than withheld. The article
-   * changed since it was translated, so some of it is now out of date — but a
-   * mostly-current Spanish article beats an English one for a reader who does
-   * not read English, and the re-translation happens on the next signed-in
-   * visit.
+   * `expire: 0` rather than the recommended 'max'. With 'max' the next request
+   * is served the cached page — still in English — while it revalidates, and
+   * the next request is precisely the reader who asked for the translation,
+   * refreshing to see it.
    */
-  if (cached && !cached.stale) {
-    return Response.json(
-      { title: cached.title, doc: cached.doc, cached: true },
-      { headers: { 'Cache-Control': 'public, max-age=300, s-maxage=86400' } },
-    );
-  }
+  revalidate: (tag) => revalidateTag(tag, { expire: 0 }),
+};
 
-  const session = await getSession();
-  if (!session) {
-    if (cached) {
-      return Response.json({ title: cached.title, doc: cached.doc, cached: true, stale: true });
-    }
-    // Not an error the reader should see as a failure: the page simply stays
-    // in English, which is what it was already showing.
-    return Response.json({ error: 'translation_requires_session' }, { status: 403 });
-  }
+export function GET(request: Request): Promise<Response> {
+  return handleTranslateGet(request, deps);
+}
 
-  const { doc, title, model, failed } = await translateArticle(article.doc, article.title, lang);
-
-  // Nothing came back translated: storing that would cache a copy of the
-  // English article under a Spanish key and never retry it.
-  if (model === 'none' || failed > 0) {
-    console.warn(`[translate] ${slug}: ${failed} strings failed via ${model}; not caching`);
-    return Response.json({ error: 'translation_failed', model }, { status: 503 });
-  }
-
-  await saveTranslation(db, {
-    pageKey: article.pageKey,
-    lang,
-    title,
-    doc,
-    model,
-    sourceUpdatedAt: article.updatedAt,
-  });
-
-  return Response.json({ title, doc, cached: false, model });
+export function POST(request: Request): Promise<Response> {
+  return handleTranslatePost(request, deps);
 }

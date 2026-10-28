@@ -13,6 +13,11 @@ export type WikiSource = {
   rank: number;
   /** Namespaces to ingest. 0 is the main article namespace. */
   namespaces: number[];
+  /**
+   * Categories the wiki uses for its own upkeep rather than to describe
+   * content, left out of what is stored. Hidden categories are always left out.
+   */
+  maintenanceCategories?: string[];
 };
 
 /** A page as listed by `list=allpages`. */

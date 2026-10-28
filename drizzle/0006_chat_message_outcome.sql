@@ -1,0 +1,16 @@
+-- How each stored answer ended: 'complete', 'stopped' or 'error'.
+--
+-- An answer cut off mid-sentence — the reader pressed Stop, a provider died,
+-- a deadline passed, the model hit its length or safety limit — used to be
+-- saved exactly like a finished one, so a reopened conversation presented
+-- half an answer as the whole of it. Failed turns saved nothing at all, and
+-- came back as bare questions with no sign anything had gone wrong.
+--
+-- Now every turn's answer row records its outcome, and the text is what the
+-- reader actually saw (possibly empty). Rows from before this column, and
+-- every question row, read as 'complete'. Adding a column with a constant
+-- default rewrites nothing, so this is instant on a table of any size.
+--
+-- The app adds the column itself on first use if this migration has not run
+-- and its database role may alter the table.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS outcome text NOT NULL DEFAULT 'complete';

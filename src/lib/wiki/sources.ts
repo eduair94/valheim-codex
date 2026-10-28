@@ -17,6 +17,22 @@ export const SOURCES: WikiSource[] = [
     articleBase: 'https://valheim.fandom.com/wiki/',
     rank: 0,
     namespaces: [0],
+    /*
+     * Added by the notice banners and not marked hidden, so they arrived as
+     * content: the browse page offered "Unfinished (10)" and "Work in progress
+     * (8)" next to "Weapons". The banners themselves are handled by the
+     * article reader (see table.ts).
+     */
+    maintenanceCategories: [
+      'Work in progress',
+      'Unfinished',
+      'Candidates for deletion',
+      'Stubs',
+      'Disambiguations',
+      'Pages with broken file links',
+      'Outdated',
+      'Valheim Wiki',
+    ],
   },
 ];
 

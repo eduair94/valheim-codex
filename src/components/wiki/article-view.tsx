@@ -1,21 +1,24 @@
-'use client';
-
-import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import type {
-  ArticleBlock,
-  ArticleDoc,
-  InfoboxGroup,
-  TableBlock,
-} from '@/lib/wiki/article-types';
-import { Gallery } from './gallery';
-import { Recipe } from './recipe';
-import { LinkedText } from './linked-text';
-import { isRecipeLabel } from '@/lib/wiki/recipe';
-import { buildLinker, type Linker, type LinkTarget } from '@/lib/wiki/links';
-import type { IngredientTarget } from '@/lib/db/wiki-repo';
-import { strings, type Lang } from '@/lib/i18n/strings';
+import type { ArticlePage } from '@/lib/wiki/data';
+import { buildLinker } from '@/lib/wiki/links';
+import { isMaintenanceCategory } from '@/lib/wiki/browse-groups';
 import { categoryHref } from '@/lib/routes';
+import { hasTermLabel, termLabel } from '@/lib/i18n/terms';
+import { strings, type Lang } from '@/lib/i18n/strings';
+import { AskButton } from './ask-button';
+import { Gallery, type GalleryImage } from './gallery';
+import { LinkedText } from './linked-text';
+import { TranslateOnView } from './translate-on-view';
+import { articleTitle, displayTitle, primaryCategory } from './article/article-meta';
+import { AskLink, type AskTarget } from './article/ask-link';
+import { STAND_DOWN, type Docked } from './article/ask-stand-down';
+import { ArticleBody } from './article/body';
+import { ExternalGlyph } from './article/glyphs';
+import { ArticleHeader } from './article/identity';
+import { Infobox, hasInfoboxContent } from './article/infobox';
+import { articleLayout } from './article/infobox-model';
+import { IntentPrefetch } from './article/intent-prefetch';
+import { translateMode } from './article/translate-request';
 
 /**
  * The article page.
@@ -23,399 +26,225 @@ import { categoryHref } from '@/lib/routes';
  * Fandom on a phone buries the numbers under a full-width infobox and a wall
  * of prose. Here the data *is* the page: identity, then stats, then the text.
  * Nobody opens "Iron Sword" to read prose.
+ *
+ * From 1024px the identity strip runs across the top and the stats either
+ * move into a column beside the text, kept in view while it fits the window,
+ * or — when they are most of the article — spread over three columns above
+ * a text that then has the whole width (`articleLayout`). The text keeps a
+ * reading measure either way; tables and pictures take the width there is.
+ * Document order is the reading order at every width: the identity, the
+ * lead, the stats, the body.
+ *
+ * Rendered on the server. What runs in the browser is small and specific: the
+ * level switcher, the gallery's viewer, the floating "ask" button, the
+ * translation request, the sticky infobox and the tables' scroll boxes.
  */
 export function ArticleView({
-  title,
-  slug,
-  url,
-  categories,
-  doc,
+  page,
   lang,
-  ingredientTargets = {},
-  recipeSources = {},
-  links = [],
+  ask,
+  canTranslate,
 }: {
-  title: string;
-  /** This article's own slug, so its name is never linked to itself. */
-  slug?: string;
-  url: string;
-  categories: string[];
-  doc: ArticleDoc;
+  page: ArticlePage;
   lang: Lang;
-  /** Recipe materials resolved to their own articles, keyed by `ingredientKey`. */
-  ingredientTargets?: Record<string, IngredientTarget>;
-  /** Each translated recipe row paired with the English it came from. */
-  recipeSources?: Record<string, string>;
-  /**
-   * The other articles this one mentions, resolved on the server. Every name
-   * in the text that matches one becomes a link to it.
-   */
-  links?: LinkTarget[];
+  ask: AskTarget;
+  /** This reader may ask for a translation (their allowance is not switched off). */
+  canTranslate: boolean;
 }) {
   const t = strings(lang);
-  const tabs = doc.infobox?.tabs ?? [];
-  const [tab, setTab] = useState(() => tabs[0]?.label ?? '');
-  const activeTab = tabs.find((x) => x.label === tab) ?? tabs[0];
-  const linker = useMemo(() => buildLinker(links, { selfSlug: slug }), [links, slug]);
+  const { article, translation, doc } = page;
+
+  // English shown inside the Spanish interface is marked as English, for the
+  // screen readers that voice it and the browsers that hyphenate it; the
+  // interface strings inside it are then marked back (I18N-04).
+  const contentLang: Lang = lang === 'es' && !translation ? 'en' : lang;
+  const uiLang = contentLang === lang ? undefined : lang;
+
+  const linker = buildLinker(page.links, { selfSlug: article.slug });
+  // An untranslated article still goes by its Spanish name where it has one,
+  // as in the lists and the search: Spanish inside an English article, and
+  // marked so.
+  const { name, english } = displayTitle(articleTitle(page, lang), article.title);
+  const nameLang = uiLang && english ? uiLang : undefined;
+  const infobox = hasInfoboxContent(doc.infobox) ? doc.infobox : null;
+  const categories = article.categories.filter((category) => !isMaintenanceCategory(category));
+
+  const mode = lang === 'es' ? translateMode(translation) : null;
+  const notice = translation ? (
+    <TranslationNote
+      lang={lang}
+      stale={translation.stale}
+      partial={translation.partial}
+      action={canTranslate && mode ? <TranslateOnView slug={article.slug} lang={lang} mode={mode} /> : null}
+    />
+  ) : lang === 'es' ? (
+    canTranslate ? (
+      <TranslateOnView slug={article.slug} lang={lang} mode="missing" />
+    ) : (
+      <p className="text-sm text-ash">{t.articleUntranslated}</p>
+    )
+  ) : null;
+
+  // Captions arrive translated where the translation has them; the rest are
+  // still the English ones, and say so. A formula the wiki drew as a picture
+  // is not a picture of the game: black type on this page's dark ground,
+  // named by its TeX source. The parser leaves them out now; rows stored
+  // before it did still carry them.
+  const sourceImages = article.doc.images;
+  const images: GalleryImage[] = doc.images.flatMap((image, i) =>
+    image.url.includes(MATH_RENDER)
+      ? []
+      : [
+          {
+            url: image.url,
+            alt: image.alt,
+            caption: image.caption,
+            captionLang:
+              contentLang === 'es' && image.caption && image.caption === sourceImages[i]?.caption ? 'en' : undefined,
+          },
+        ],
+  );
+
+  // From 1024px: the stats beside the text, or spread above it (`articleLayout`).
+  const layout = articleLayout(doc, infobox);
+  const side = layout === 'side';
+  const docked: Docked = layout === 'side' ? 'sticky' : layout === 'spread' ? 'always' : 'never';
 
   return (
-    <article className="pb-28">
-      <IdentityStrip title={title} doc={doc} lang={lang} linker={linker} />
+    <IntentPrefetch lang={contentLang} className="pb-4">
+      <ArticleHeader
+        name={name}
+        nameLang={nameLang}
+        english={english}
+        doc={doc}
+        category={primaryCategory(categories)}
+        lang={lang}
+        uiLang={uiLang}
+        linker={linker}
+        notice={notice}
+      />
 
-      {doc.lead ? (
-        <p className="mt-4 max-w-[62ch] text-[0.975rem] leading-[1.7] text-birch/90">
-          <LinkedText text={doc.lead} linker={linker} />
-        </p>
-      ) : null}
+      <div className={`mt-6 lg:mt-8 ${side ? SIDE_GRID : ''}`}>
+        {doc.lead ? (
+          <p className="max-w-[68ch] text-[1.0625rem] leading-[1.7] text-birch/90 lg:col-start-1 lg:row-start-1">
+            <LinkedText text={doc.lead} linker={linker} lines />
+          </p>
+        ) : null}
 
-      {tabs.length > 1 ? (
-        <div className="mt-5">
-          {/*
-           * The tabs used to appear as four bare numbers. They are upgrade
-           * levels — the same item improved at a crafting station — and
-           * nothing on the page said so, which left the reader switching
-           * between tabs to work out what was changing.
-           */}
-          <p className="label mb-1.5">{t.wikiLevels}</p>
-          <div
-            className="flex gap-1 overflow-x-auto rounded-md border border-moss bg-peat p-1"
-            role="tablist"
-            aria-label={t.wikiLevels}
-          >
-            {tabs.map((x) => (
-              <button
-                key={x.label}
-                type="button"
-                role="tab"
-                aria-selected={x.label === tab}
-                onClick={() => setTab(x.label)}
-                className={`shrink-0 rounded-sm px-3 py-1.5 font-mono text-xs transition-colors ${
-                  x.label === tab ? 'bg-forge text-bog' : 'text-ash hover:text-birch'
-                }`}
-              >
-                {/^\d+$/.test(x.label) ? `${t.wikiLevel} ${x.label}` : x.label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1.5 text-[0.8rem] leading-snug text-ash">{t.wikiLevelsHint}</p>
-        </div>
-      ) : null}
+        {infobox ? (
+          <Infobox
+            infobox={infobox}
+            lang={lang}
+            uiLang={uiLang}
+            linker={linker}
+            ingredientTargets={page.ingredientTargets}
+            recipeSources={page.recipeSources}
+            ask={ask}
+            layout={side ? 'side' : 'spread'}
+            className={`${doc.lead ? 'mt-6' : ''} ${side ? SIDE_INFOBOX : 'lg:mt-8'}`}
+          />
+        ) : null}
 
-      {doc.infobox ? (
-        <div className="mt-4 flex flex-col gap-4">
-          {mergeGroups([...doc.infobox.common, ...(activeTab?.groups ?? [])]).map((group, i) => (
-            <StatGroup
-              key={i}
-              group={group}
-              lang={lang}
-              ingredientTargets={ingredientTargets}
-              recipeSources={recipeSources}
+        <div
+          className={`flex min-w-0 flex-col gap-10 ${doc.lead || infobox ? 'mt-10' : ''} ${
+            !side ? 'lg:mt-12' : doc.lead ? 'lg:col-start-1 lg:row-start-2 lg:mt-8' : 'lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-0'
+          }`}
+        >
+          {doc.blocks.length > 0 ? (
+            <ArticleBody
+              blocks={doc.blocks}
+              sourceBlocks={translation ? article.doc.blocks : undefined}
               linker={linker}
+              lang={lang}
+              uiLang={uiLang}
             />
-          ))}
+          ) : null}
+          {images.length > 0 ? <Gallery images={images} lang={lang} uiLang={uiLang} wide={!side} /> : null}
         </div>
-      ) : null}
+      </div>
 
-      {doc.blocks.length > 0 ? (
-        <div data-testid="article-body" className="mt-8 flex flex-col gap-4">
-          <Blocks blocks={doc.blocks} linker={linker} />
-        </div>
-      ) : null}
-
-      {doc.images.length > 0 ? <Gallery images={doc.images} lang={lang} /> : null}
-
-      <footer className="mt-10 border-t border-moss pt-4">
+      <footer lang={uiLang} className="mt-12 flex flex-col gap-4 border-t border-moss pt-6">
         {categories.length > 0 ? (
-          <ul className="mb-4 flex flex-wrap gap-1.5">
-            {categories.map((c) => (
-              <li key={c}>
+          <ul aria-label={t.articleCategories} className="flex flex-wrap gap-2">
+            {categories.map((category) => (
+              <li key={category}>
                 <Link
-                  href={categoryHref(c)}
-                  className="inline-block rounded-sm border border-moss px-2 py-1 text-xs text-ash transition-colors hover:border-forge/40 hover:text-birch"
+                  href={categoryHref(category)}
+                  prefetch={false}
+                  lang={lang === 'es' && !hasTermLabel('category', category) ? 'en' : undefined}
+                  className="inline-flex min-h-8 items-center rounded-md border border-moss px-3 text-sm text-ash transition-colors hover:border-forge/40 hover:text-birch pointer-coarse:min-h-11"
                 >
-                  {c}
+                  {termLabel('category', category, lang)}
                 </Link>
               </li>
             ))}
           </ul>
         ) : null}
 
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="font-mono text-[0.7rem] text-ash underline-offset-4 hover:text-birch hover:underline"
-        >
-          {t.wikiSourceLink} ↗
-        </a>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <AskLink
+            ask={ask}
+            className="inline-flex min-h-8 items-center gap-2 text-sm text-forge underline-offset-4 hover:underline pointer-coarse:min-h-11"
+          >
+            {t.articleAskInFlow.replace('{name}', name)}
+          </AskLink>
+          <a
+            href={article.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-8 items-center gap-1 font-mono text-xs text-ash underline-offset-4 hover:text-birch hover:underline pointer-coarse:min-h-11"
+          >
+            {t.wikiSourceLink}
+            <ExternalGlyph />
+            <span className="sr-only">({t.articleSourceNewTab})</span>
+          </a>
+        </div>
       </footer>
-    </article>
+
+      {/*
+       * Keeps the end of the article clear of the floating button wherever it
+       * floats; the frame already clears the tab bar. One spacer, sized to
+       * the button: the article used to carry two, 224px of dead end (LM-10).
+       */}
+      <div aria-hidden="true" className={`h-10 ${STAND_DOWN[docked]}`} />
+
+      <AskButton ask={ask} label={t.wikiAskAbout} docked={docked} lang={uiLang} />
+    </IntentPrefetch>
   );
 }
 
-function IdentityStrip({
-  title,
-  doc,
+/** Where MediaWiki's maths renderer serves its formulas (`article.ts` skips the same). */
+const MATH_RENDER = '/media/math/render/';
+
+/** Two columns: the text, and the 22rem infobox column beside it. */
+const SIDE_GRID = 'lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[auto_1fr] lg:gap-x-12';
+
+/** The infobox column: beside the lead and the body, pinned below the nav while it fits the window. */
+const SIDE_INFOBOX =
+  'lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:top-[calc(var(--nav-h)+1.5rem)] lg:data-sticky:sticky';
+
+/**
+ * Said plainly rather than hidden. This text was translated by a model from
+ * an English wiki, and a reader deciding whether to trust a crafting cost
+ * deserves to know that before they mine the iron.
+ */
+function TranslationNote({
   lang,
-  linker,
+  stale,
+  partial,
+  action,
 }: {
-  title: string;
-  doc: ArticleDoc;
   lang: Lang;
-  linker: Linker;
+  stale: boolean;
+  partial: boolean;
+  action: React.ReactNode;
 }) {
   const t = strings(lang);
-  const image = doc.infobox?.image;
-  const { type, station, biome } = doc.facets;
-  const facets = [type, station ? `${t.wikiStation}: ${station}` : null, biome].filter(
-    (f): f is string => Boolean(f),
-  );
-
+  const parts = [t.wikiTranslated, stale ? t.wikiTranslationStale : null, partial ? t.articleTranslatedPartial : null];
   return (
-    <header className="flex items-start gap-4">
-      {image ? (
-        // Hotlinked from Fandom's CDN, and deliberately not `next/image`: these
-        // are third-party URLs that would otherwise be proxied and re-encoded
-        // through our server for no gain.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={image.url}
-          alt={image.alt || title}
-          width={72}
-          height={72}
-          loading="eager"
-          className="h-[72px] w-[72px] shrink-0 rounded-md border border-moss bg-peat object-contain p-1"
-        />
-      ) : null}
-
-      <div className="min-w-0">
-        <h1 className="display text-lg leading-tight text-birch">{title}</h1>
-        {facets.length > 0 ? (
-          <p className="mt-1 font-mono text-[0.7rem] text-ash">
-            {facets.map((facet, i) => (
-              <span key={facet}>
-                {i > 0 ? ' · ' : ''}
-                <LinkedText text={facet} linker={linker} />
-              </span>
-            ))}
-          </p>
-        ) : null}
-      </div>
-    </header>
-  );
-}
-
-/**
- * Joins consecutive groups that share a heading.
- *
- * The wiki splits an infobox into a group per horizontal row, so an item's
- * stats arrive as four separate blocks all labelled "Properties". Rendering
- * them as-is repeats the heading down the page and puts every single-row group
- * in its own bordered box, which reads as noise rather than as structure.
- */
-function mergeGroups(groups: InfoboxGroup[]): InfoboxGroup[] {
-  const out: InfoboxGroup[] = [];
-  for (const group of groups) {
-    if (group.rows.length === 0) continue;
-    const previous = out[out.length - 1];
-    if (previous && previous.label === group.label) {
-      previous.rows = [...previous.rows, ...group.rows];
-      continue;
-    }
-    out.push({ label: group.label, rows: [...group.rows] });
-  }
-  return out;
-}
-
-/** Past this, a value is a sentence and belongs under its label, not beside it. */
-const INLINE_VALUE_LIMIT = 42;
-
-/**
- * A block of stats: label left, value right, values monospaced so digits line
- * up down the column and can be compared without reading each row. A long
- * value drops below its label and reads as prose, because a paragraph
- * right-aligned in a narrow column is unreadable.
- */
-function StatGroup({
-  group,
-  lang,
-  ingredientTargets,
-  recipeSources,
-  linker,
-}: {
-  group: InfoboxGroup;
-  lang: Lang;
-  ingredientTargets: Record<string, IngredientTarget>;
-  recipeSources: Record<string, string>;
-  linker: Linker;
-}) {
-  return (
-    <section>
-      {group.label ? <h2 className="label mb-1.5">{group.label}</h2> : null}
-      <dl className="overflow-hidden rounded-md border border-moss">
-        {group.rows.map((row, i) => {
-          /*
-           * A recipe is the one row whose parts are separately findable
-           * things, so it gets pictures and links rather than a value.
-           */
-          if (isRecipeLabel(row.label)) {
-            return (
-              <div key={i} className="border-b border-moss/60 px-3 py-2.5 last:border-b-0">
-                <dt className="label mb-2">{row.label}</dt>
-                <dd>
-                  <Recipe
-                    value={row.value}
-                    sourceValue={recipeSources[row.value]}
-                    targets={ingredientTargets}
-                    lang={lang}
-                  />
-                </dd>
-              </div>
-            );
-          }
-
-          const long = row.value.length > INLINE_VALUE_LIMIT;
-          return (
-            <div
-              key={i}
-              className={`border-b border-moss/60 px-3 py-2 last:border-b-0 odd:bg-peat/40 ${
-                long ? '' : 'flex items-baseline justify-between gap-4'
-              }`}
-            >
-              <dt className="shrink-0 text-sm text-ash">{row.label}</dt>
-              <dd
-                className={
-                  long
-                    ? 'mt-1 text-[0.85rem] leading-snug text-birch'
-                    : 'text-right font-mono text-[0.8rem] text-birch'
-                }
-              >
-                <LinkedText text={row.value} linker={linker} />
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
-    </section>
-  );
-}
-
-function Blocks({ blocks, linker }: { blocks: ArticleBlock[]; linker: Linker }) {
-  const out: React.ReactNode[] = [];
-  let lastSection = '';
-
-  blocks.forEach((block, i) => {
-    if (block.section && block.section !== lastSection) {
-      lastSection = block.section;
-      out.push(
-        <h2 key={`h${i}`} className="display mt-4 text-sm text-birch first:mt-0">
-          {block.section.split(' > ').at(-1)}
-        </h2>,
-      );
-    }
-
-    if (block.kind === 'paragraph') {
-      out.push(
-        <p key={i} className="max-w-[62ch] text-[0.95rem] leading-[1.7] text-birch/90">
-          <LinkedText text={block.text} linker={linker} />
-        </p>,
-      );
-      return;
-    }
-
-    if (block.kind === 'list') {
-      const Tag = block.ordered ? 'ol' : 'ul';
-      out.push(
-        <Tag key={i} className="answer max-w-[62ch] text-[0.95rem] text-birch/90">
-          {block.items.map((item, j) => (
-            <li key={j}>
-              <LinkedText text={item} linker={linker} />
-            </li>
-          ))}
-        </Tag>,
-      );
-      return;
-    }
-
-    out.push(<DataTable key={i} block={block} linker={linker} />);
-  });
-
-  return <>{out}</>;
-}
-
-/**
- * A wide table on a narrow screen.
- *
- * The table scrolls inside its own box with the first column pinned, so the
- * row stays identifiable while reading across — and the page itself never
- * scrolls sideways, which is the thing that makes a phone wiki unusable.
- */
-function DataTable({ block, linker }: { block: TableBlock; linker: Linker }) {
-  return (
-    <figure className="my-1">
-      {block.caption ? (
-        <figcaption className="label mb-1.5">{block.caption}</figcaption>
-      ) : null}
-      {/*
-         * Focusable because it scrolls. A pointer can drag a wide table
-         * sideways; without a tab stop a keyboard cannot reach the columns
-         * past the fold at all.
-         */}
-      <div
-        data-testid="table-scroller"
-        tabIndex={0}
-        role="region"
-        aria-label={block.caption ?? "Tabla"}
-        className="stack-scroller overflow-x-auto rounded-md border border-moss"
-      >
-        <table className="stack-table w-full border-collapse text-left text-[0.8rem]">
-          <thead>
-            <tr className="bg-peat">
-              {block.headers.map((h, i) => (
-                <th
-                  key={i}
-                  scope="col"
-                  className={`whitespace-nowrap border-b border-moss px-3 py-2 font-mono text-[0.68rem] uppercase tracking-wider text-ash ${
-                    i === 0 ? 'sticky left-0 z-10 bg-peat' : ''
-                  }`}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, i) => (
-              <tr key={i} className="odd:bg-peat/30">
-                {row.map((cell, j) =>
-                  /*
-                   * The first cell is what the row is about, so it is a row
-                   * header rather than data. That is also what turns it into
-                   * the card's title once the table stacks on a phone.
-                   */
-                  j === 0 ? (
-                    <th
-                      key={j}
-                      scope="row"
-                      className="sticky left-0 z-10 whitespace-nowrap border-b border-moss/50 bg-bog px-3 py-2 text-left font-medium text-birch odd:bg-bog"
-                    >
-                      <LinkedText text={cell} linker={linker} />
-                    </th>
-                  ) : (
-                    <td
-                      key={j}
-                      data-label={block.headers[j] ?? ''}
-                      className="whitespace-nowrap border-b border-moss/50 px-3 py-2 font-mono text-birch/90"
-                    >
-                      <LinkedText text={cell} linker={linker} />
-                    </td>
-                  ),
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </figure>
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-ash">{parts.filter(Boolean).join(' · ')}</p>
+      {action}
+    </div>
   );
 }

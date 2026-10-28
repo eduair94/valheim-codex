@@ -40,14 +40,37 @@ const REVISION = /\/revision\/latest/;
  * warrior went from 17.9 KB to 2 KB — and those are exactly the ones that would
  * otherwise stall a recipe on a slow connection.
  *
- * A URL that already carries a resizing segment, or that is not from Fandom,
- * is returned untouched: better the image the reader would have had than a
- * URL assembled from a guess about someone else's CDN.
+ * The ingest stores grid-sized URLs (`scale-to-width-down/268`), which is
+ * still four times too many pixels for a 60px tile: home and browse spent
+ * about half their image bytes on them. A stored `scale-to-width-down` is
+ * therefore shrunk to the drawn size — never enlarged, so no slot ever costs
+ * more than it did. Other resizing modes (crops, fixed widths) are left alone,
+ * as is anything not from Fandom: better the image the reader would have had
+ * than a URL assembled from a guess about someone else's CDN.
  */
 export function thumbnailImageUrl(url: string, width: number): string {
   if (!url.includes('wikia.nocookie.net')) return url;
+  const wanted = Math.max(1, Math.round(width * 2));
+
+  const sized = /\/scale-to-width-down\/([0-9]+)/.exec(url);
+  if (sized) {
+    const current = Number(sized[1]);
+    return wanted < current ? url.replace(sized[0], `/scale-to-width-down/${wanted}`) : url;
+  }
   if (RESIZE_SEGMENT.test(url)) return url;
   if (!REVISION.test(url)) return url;
 
-  return url.replace(REVISION, `/revision/latest/scale-to-width-down/${Math.round(width * 2)}`);
+  return url.replace(REVISION, `/revision/latest/scale-to-width-down/${wanted}`);
 }
+
+/**
+ * Attributes every `<img>` pointing at Fandom's CDN must carry.
+ *
+ * Fandom answers any request whose `Referer` names another site with a grey
+ * "image not available" placeholder (a 404 with an image body), so every
+ * picture in the app broke at once when it started doing that. Without a
+ * Referer it serves the real file. The site-wide `Referrer-Policy` header
+ * covers this too; the attribute keeps an image working even where a cached
+ * page predates the header.
+ */
+export const FANDOM_IMG_PROPS = { referrerPolicy: 'no-referrer', decoding: 'async' } as const;

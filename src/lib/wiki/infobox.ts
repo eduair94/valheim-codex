@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { AnyNode, Element } from 'domhandler';
 import type { Infobox, InfoboxNode } from './types';
+import { inlineText, lineText } from './dom-text';
 import { cleanText } from './text';
 
 type Api = cheerio.CheerioAPI;
@@ -86,8 +87,8 @@ function toNode($: Api, el: Element): InfoboxNode | null {
 
 function dataNode($: Api, el: Element): InfoboxNode | null {
   const $el = $(el);
-  const label = cleanText($el.find('.pi-data-label').first().text());
-  const value = renderValue($, $el.find('.pi-data-value').first());
+  const label = labelText($el.find('.pi-data-label').first());
+  const value = renderValue($el.find('.pi-data-value').first());
   if (!value) return null;
   // Some entries (the flavour-text description) carry a value but no label.
   return { kind: 'data', label: label || 'Description', value };
@@ -102,11 +103,11 @@ function horizontalGroupNode($: Api, el: Element): InfoboxNode | null {
   const labels = $table
     .find('th.pi-data-label')
     .toArray()
-    .map((th) => cleanText($(th).text()));
+    .map((th) => labelText($(th)));
   const values = $table
     .find('td.pi-data-value')
     .toArray()
-    .map((td) => renderValue($, $(td)));
+    .map((td) => renderValue($(td)));
 
   const children: InfoboxNode[] = [];
   for (let i = 0; i < Math.max(labels.length, values.length); i += 1) {
@@ -149,27 +150,27 @@ function tabsNode($: Api, el: Element): InfoboxNode | null {
 }
 
 /**
- * Value cells often hold `<ul>` lists (crafting materials) or `<br>`-separated
- * runs. Both become `a; b; c` so the pairing survives into one line.
+ * A value, one entry per line.
+ *
+ * Value cells hold `<ul>` lists (crafting materials), `<br>`-separated runs
+ * and the odd `<p>`; each entry becomes its own line, `Finewood x10\nBronze
+ * x3`, so the reader can show them as a list and nothing runs together.
+ *
+ * The previous reading joined every `<li>` it could find with "; ", nested
+ * ones included, and also kept each parent item's whole text — so a creature's
+ * abilities read "Unarmed:Punch (4s)Ground slam (20s); Punch (4s); Ground
+ * slam (20s)", every attack twice and the first copy glued together. An
+ * `<a>Oden</a><p><a>Munin</a></p>` read "OdenMunin".
  */
-function renderValue($: Api, $value: cheerio.Cheerio<AnyNode>): string {
-  if ($value.length === 0) return '';
-  const items = $value.find('li').toArray();
-  if (items.length > 0) {
-    return items
-      .map((li) => cleanText($(li).text()))
-      .filter(Boolean)
-      .join('; ');
-  }
-  const html = $value.html() ?? '';
-  if (/<br\s*\/?>/i.test(html)) {
-    return html
-      .split(/<br\s*\/?>/i)
-      .map((part) => cleanText(cheerio.load(`<div>${part}</div>`)('div').text()))
-      .filter(Boolean)
-      .join('; ');
-  }
-  return cleanText($value.text());
+function renderValue($value: cheerio.Cheerio<AnyNode>): string {
+  const el = $value.get(0);
+  return el ? lineText(el) : '';
+}
+
+/** A label on one line: `Damaged by<br>Rain?` is one label, not two run together. */
+function labelText($label: cheerio.Cheerio<AnyNode>): string {
+  const el = $label.get(0);
+  return el ? inlineText(el) : '';
 }
 
 export type RenderInfoboxOptions = {
@@ -209,6 +210,16 @@ function mergeByBreadcrumb(lines: string[]): string[] {
 }
 
 /**
+ * A value as one run of text: its lines joined with "; ".
+ *
+ * A rendered infobox is one line per breadcrumb, and the chunker relies on
+ * that, so a value's own line breaks cannot survive into it.
+ */
+function oneLine(value: string): string {
+  return value.replace(/\n/g, '; ');
+}
+
+/**
  * Flattens the tree to labelled lines, e.g.
  * `Level 1 › Properties: Weight: 0.8; Durability: 200`.
  */
@@ -228,7 +239,7 @@ export function renderInfobox(box: Infobox, options: RenderInfoboxOptions = {}):
 
     for (const node of nodes) {
       if (node.kind === 'data') {
-        pairs.push(`${node.label}: ${node.value}`);
+        pairs.push(`${node.label}: ${oneLine(node.value)}`);
         continue;
       }
       if (node.kind === 'group') {
@@ -238,7 +249,7 @@ export function renderInfobox(box: Infobox, options: RenderInfoboxOptions = {}):
         } else {
           // Unlabelled group (a horizontal row): keep it on the current line.
           for (const child of node.children) {
-            if (child.kind === 'data') pairs.push(`${child.label}: ${child.value}`);
+            if (child.kind === 'data') pairs.push(`${child.label}: ${oneLine(child.value)}`);
             else {
               flushPairs();
               walk([child], breadcrumb);
@@ -261,8 +272,18 @@ export function renderInfobox(box: Infobox, options: RenderInfoboxOptions = {}):
   return [box.title, ...mergeByBreadcrumb(lines)].filter(Boolean).join('\n');
 }
 
-/** Tab labels present in the infobox, or `[]` when it has no tabber. */
+/**
+ * Tab labels present in the infobox, or `[]` when it has no tabber: those of
+ * the first tabber with a tab that holds data.
+ *
+ * The first tabber of all used to answer. On every armor piece that is the
+ * picture's ("Icon", no data, so no tabs), and the quality levels after it —
+ * armor, durability, weight, the recipe of each level — had no tab to go to:
+ * the reading document dropped them. No armor piece's infobox showed them
+ * (66 in the Armor category, and Megingjord and the Wisplight besides), and
+ * the Armor comparison had none to compare.
+ */
 export function infoboxTabs(box: Infobox): string[] {
-  const tabs = box.nodes.find((n) => n.kind === 'tabs');
+  const tabs = box.nodes.find((n) => n.kind === 'tabs' && n.tabs.length > 0);
   return tabs?.kind === 'tabs' ? tabs.tabs.map((t) => t.label) : [];
 }

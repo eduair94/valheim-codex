@@ -5,13 +5,15 @@ answers from it. Ask a question in Spanish or English and get an answer built
 only from wiki text; or search, browse and compare the 1,027 articles directly.
 Installable, and articles you have opened stay readable offline.
 
-- **Next.js 16** (App Router) + React 19, deployed to Vercel
+- **Next.js 16** (App Router) + React 19, self-hosted with Docker behind a Cloudflare tunnel
 - **Gemini Flash** for answers; embeddings from Gemini or a local CPU model
 - **Postgres + pgvector** — Neon in production, embedded PGlite for local dev and tests
 - **Hybrid retrieval**: dense vectors + Postgres full-text, fused with Reciprocal Rank Fusion
-- One shared password, per-person profiles for separate history
-- **Mobile reader**: instant local search, data-first article pages, category
-  and biome browsing, sortable comparison tables, installable with offline
+- Chat sign-in three ways: a shared password (operator-paid), your own Gemini
+  API key, or your Puter account; each keeps its own conversation history
+- **Mobile reader**, Spanish or English: instant local search that understands
+  Spanish names, data-first article pages, category and biome browsing,
+  sortable comparison tables, a bilingual 100% guide, installable with offline
   reading
 
 ---
@@ -90,9 +92,14 @@ which is what a Spanish question searching English text needs. It uses the
 asymmetric task types.
 
 **Vectors from different models are not comparable.** The provider that built
-the index is recorded in the `settings` table, and changing it makes the next
-ingest discard every stored vector and recompute — an index half-built with
-each would retrieve nonsense without ever raising an error.
+the index is recorded in the `settings` table, and an ingest whose
+`EMBEDDING_PROVIDER` differs refuses to run (the index is left untouched) — an
+index half-built with each would retrieve nonsense without ever raising an
+error. Switching is explicit: `EMBEDDING_PROVIDER=<id> pnpm ingest
+--switch-provider=<id>`, and the app's `EMBEDDING_PROVIDER` must follow it.
+`--reembed` rebuilds every vector with the provider that built the index; the
+rebuild works from the stored chunk text, and missing vectors are filled again
+at the start of every run, so a failed rebuild never leaves the index empty.
 
 ### The wiki reader
 
@@ -116,10 +123,15 @@ translation dropped the gloss. The server resolves the mentions against the
 whole title list; the page carries only the handful it uses.
 
 **Search is split by what each half is good at.** The title index — 1,027
-entries, about 40 KB gzipped — is sent to the browser and filtered as you type:
-no request, no spinner, and it works offline. Full-text search over article
-bodies stays on the server, reusing the same weighted `tsvector` the chat
-retrieval already maintains.
+entries with their Spanish names, about 29 KB brotli — is sent to the browser
+and filtered as you type: no request, no spinner, and it works offline. It
+folds accents and case, reads Spanish through the glossary and the display
+vocabulary (`src/lib/i18n/terms.ts`), so *hierro*, *espada de hierro*,
+*jabali* and *banco de trabajo* all rank the right article first. Full-text
+search over article bodies stays on the server, reusing the same weighted
+`tsvector` the chat retrieval maintains, plus the stored Spanish titles and
+leads (so *cardo* finds Thistle); the query is in the URL (`/wiki?q=`), so Back
+returns to the results.
 
 **Browsing uses three axes** because they answer different questions:
 categories ("what kind of thing"), biomes ("what will I meet out there") and
@@ -228,14 +240,15 @@ hatch — useful to know before concluding a key is dead.
 
 **The reader is public; the chat is not.** The reader shows an index built from
 a public wiki, so there is nothing behind a gate worth the cost of one. The
-chat is different: every question spends model tokens on the operator's
-account, and conversations are private to the profile that wrote them.
+chat is different: every question spends model tokens on somebody's account,
+and every conversation belongs to the profile that started it. Under the
+shared password a profile is a name, not an account (see **Profiles** below).
 
-| Public | Behind the password |
-| --- | --- |
-| `/wiki/**` — search, browse, articles, compare | `/` — the chat |
-| `/api/wiki/**` — title index, content search | `/api/chat`, `/api/conversations/**` |
-| `/login`, `/api/auth/**`, `/api/health` | `/api/ingest` |
+| Public | Any signed-in reader | Password only |
+| --- | --- | --- |
+| `/wiki/**` — search, browse, articles, compare | `/` — the chat | `/api/ingest` (only the `ADMIN_PROFILES` names, if set: a convenience, not a lock) |
+| `/api/wiki/**` — title index, search, translations | `/api/chat`, `/api/chat/prepare`, `/api/chat/complete` | |
+| `/login`, `/api/auth/**`, `/api/health`, `/robots.txt`, `/sitemap.xml` | `/api/conversations/**` | |
 
 `src/lib/auth/access.ts` is the single list, read by both the proxy and the
 handlers, so a path cannot be public in the routing layer while its handler
@@ -243,20 +256,96 @@ still refuses — or, far worse, the other way round. Prefixes match at a path
 boundary, so a route added later whose name merely begins with `/wiki` does
 not inherit its openness. `tests/unit/access-policy.test.ts` pins both halves.
 
-A signed-out visitor to `/` lands on the reader rather than a password prompt.
-The chat tab shows a lock and leads to the login form, so the password is
-announced rather than sprung after the click.
+**Three ways in**, chosen on `/login`. Each is its own cookie with its own key
+and audience, so one can never be mistaken for another:
 
-One shared password, hashed with scrypt (N=2^16) from `node:crypto` — no native
-module to build on Windows or ship to Vercel. A successful login mints a
-30-day HS256 JWT in an httpOnly cookie. The profile name in that token is a
-label, not a credential; it only scopes conversation history.
+| | Who pays for answers | What the server keeps |
+| --- | --- | --- |
+| **Shared password** | the operator's provider chain | a 30-day HS256 session (`wv_session`) naming a profile, which is a label, not a credential |
+| **Own Gemini key** | the reader's Google account | the key, encrypted (JWE, A256GCM) in an httpOnly cookie (`wv_byok`, 30 days); never in the database, never logged |
+| **Puter** | the reader's Puter account; the model runs from their browser | a 1-day session (`wv_puter`) after the server verifies their Puter token |
 
-The proxy (`src/proxy.ts`, the Next.js 16 name for middleware) redirects
-unauthenticated browsers, but **every gated page and route handler verifies the
-session itself**. Next.js middleware has been bypassable through a forged
-internal header ([CVE-2025-29927](https://nvd.nist.gov/vuln/detail/CVE-2025-29927)),
-so it is a routing convenience, never the only gate.
+- **Own key.** `POST /api/auth/byok` checks the key against Google (a
+  `models.get` and a one-token generation, the key only ever in the
+  `x-goog-api-key` header) before sealing it, so a typo fails at sign-in rather
+  than on the first question. Answers then use only that key and the model the
+  reader picked; the operator's keys and its circuit breaker are never touched.
+- **Puter.** The browser signs in with `puter.auth.signIn()` and hands the token
+  to `POST /api/auth/puter`, which asks Puter who it belongs to and refuses a
+  token issued to another site or to a temporary account. Retrieval stays on the
+  server (`/api/chat/prepare` returns the grounded prompt and a 15-minute signed
+  grant); the browser streams the answer from Puter and `/api/chat/complete`
+  stores it against the grant.
+- `GUEST_CHAT_MODES` (default `byok,puter`) turns either off — `none` makes the
+  chat password-only — and is read on every request, so it also stops cookies
+  already issued.
+
+**Profiles.** History is kept per profile, and what keeps others out of it
+depends on how its reader signed in:
+
+- A Gemini-key reader's history belongs to an id minted in their browser
+  (`byok:<uuid>`). A second cookie, `wv_byok_owner`, outlives sign-out: for the
+  last four keys used in that browser it remembers which id each one signed in
+  as, by a server-keyed tag of the key, never the key. So the same key in the
+  same browser finds its history again after signing out, "Forget key" or a
+  switch to another method; another key starts a history of its own and cannot
+  reach the previous one; another browser always starts fresh. Changing the key
+  while signed in keeps the history. Clearing the site's data, 180 days without
+  signing in, or rotating `BYOK_SECRET` (`SESSION_SECRET` while `BYOK_SECRET`
+  is unset) cuts a browser off from those histories; their rows stay in the
+  database, since nothing purges them yet.
+- A Puter reader's history belongs to their Puter account (`puter:<uuid>`),
+  from any device they sign in on. Neither kind of id can be typed at sign-in.
+- Under the shared password, the profile is only the name typed at sign-in.
+  Anyone with the password who types the same name (case counts, extra spaces
+  do not) sees that profile's conversations and can continue, rename and
+  delete them. Give the password only to people you would show your history
+  to: privacy between them would need a credential per person, which this
+  app does not have.
+- `ADMIN_PROFILES` limits re-indexing to some of those names. Anyone with the
+  password can type one, so it keeps the button from friends who should not
+  press it, not from someone determined.
+
+Sessions are verified **in every gated page and route handler**, not only in the
+proxy (`src/proxy.ts`, the Next.js 16 name for middleware): middleware has been
+bypassable through a forged internal header
+([CVE-2025-29927](https://nvd.nist.gov/vuln/detail/CVE-2025-29927)), so it is a
+routing convenience, never the only gate. In production every auth cookie is
+`__Host-`-prefixed (Secure, host-only, path `/`), so deploying this version
+signs everyone out once.
+
+**The password** is hashed with scrypt (N=2^16) from `node:crypto` and must be
+at least 12 characters. Guessing is bounded in Postgres per address (10 per 15
+minutes), per network (an IPv4 /24 or IPv6 /48, 30), and by a budget of failed
+sign-ins from everyone (50 per window). Past that budget only browsers that
+have signed in before (a signed `wv_device` cookie, tied to the current hash)
+may try. Verification runs at most two at a time per process, so a guess flood
+cannot starve the server. The address is Cloudflare's `CF-Connecting-IP`
+(the origin listens on loopback behind the tunnel, so it cannot be forged),
+else the nearest proxy hop — never the client-written first
+`X-Forwarded-For` entry, which let every guess buy a fresh window.
+
+**Every mutating API request** must come from this site (`Sec-Fetch-Site` or
+`Origin`), carry JSON, and stay under 64 KB; the proxy checks all three before
+any handler runs. One exception: `/api/csp-report` also takes the
+`Origin: null` report with no `Sec-Fetch-Site` that Safari before 16.4 sends.
+It stores nothing and rate-limits its own logging.
+
+**Quotas** (`src/lib/auth/limits.ts`, all overridable, see `.env.example`):
+password sessions share 40 questions per 10 minutes per address and 2,000 a
+day overall; guest readers spend their own budget but the server still
+retrieves for them, so they get 6 a minute and 150 a day each. Counted in
+Postgres in one statement per request; a guest is refused if the counter is
+unavailable. Opening a saved conversation returns its newest 200 messages
+(about 1 MB at most) and is capped at 60 a minute per reader and per address,
+in memory.
+
+**Headers.** `Referrer-Policy: no-referrer` (Fandom's CDN refuses images that
+carry a referrer), `X-Frame-Options: DENY`, HSTS, `nosniff`, a
+`Permissions-Policy`, and a Content-Security-Policy. Production sends the full
+CSP **report-only** until `CSP_ENFORCE=1` (violations are logged as `[csp]`
+lines by `/api/csp-report`); framing, `<base>`, plugins and form targets are
+blocked from day one.
 
 ### Database privileges
 
@@ -269,8 +358,9 @@ The split means a compromise of the internet-facing container costs you the
 conversations, not the index. `pnpm db:app-role` creates or rotates the role and
 writes its connection string to a file without printing it.
 
-Login is rate limited to 10 attempts per IP per 15 minutes, counted in
-Postgres — an in-process counter would reset on every serverless cold start.
+Login attempts, quotas and translation progress are counted in Postgres, not
+in the process, so they hold across restarts and across every process serving
+the app.
 
 ---
 
@@ -281,9 +371,14 @@ Postgres — an in-process counter would reset on every serverless cold start.
 | `pnpm dev` | Development server |
 | `pnpm build` / `pnpm start` | Production build and server |
 | `pnpm ingest` | Incremental re-index |
-| `pnpm ingest --full` | Re-parse every page |
+| `pnpm ingest --full` | Re-parse every page (implies `--reparse`) |
+| `pnpm ingest --reparse` | Rebuild pages an older parser built (each run reports how many) |
 | `pnpm ingest --limit 20` | Index 20 pages, skipping pruning — a smoke test |
-| `pnpm ingest --reembed` | Discard stored vectors and recompute them all |
+| `pnpm ingest --reembed` | Recompute every vector with the index's own provider |
+| `pnpm ingest --switch-provider=<id>` | Move the index to another embedding provider (with `EMBEDDING_PROVIDER=<id>`) |
+| `pnpm translate:es --priority` | Translate 30 key pages (biomes, bosses, stations, hubs) into Spanish (`--dry-run`, `--slugs`, `--max-strings`, `--rpm` …) |
+| `pnpm translate:es --rebuild` | Re-derive stored translations from their memory; no model calls |
+| `pnpm db:app-role` | Create or rotate the least-privilege `valheim_app` role |
 | `pnpm eval` | Retrieval quality: recall@5 over `tests/eval/golden.jsonl` |
 | `pnpm test` | Unit and integration suite |
 | `pnpm test:e2e` | Playwright end-to-end suite |
@@ -292,6 +387,16 @@ Postgres — an in-process counter would reset on every serverless cold start.
 | `pnpm db:migrate` | Apply migrations |
 | `pnpm db:backup` | Copy the embedded database aside |
 | `pnpm db:restore` | Restore it (`--dir .data/serve` for a disposable copy) |
+
+**Which database a script works on** (`scripts/_db.ts`; `ingest`,
+`translate:*`, `db:migrate` and `eval`). Scripts read `.env.local`, then
+`.env`, never `.env.development.local`. `--pglite <dir>` picks that local copy
+whatever else is set, and `--neon` picks `DATABASE_URL`. A `DATABASE_URL` from
+one of those files is read freely but written only with `--neon`; one given in
+the environment (`DATABASE_URL='…' pnpm db:migrate`, the ingest workflow's
+secret) works as it always did. `DATABASE_URL` and `PGLITE_DATA_DIR` both set,
+with neither flag, stops the run. In PowerShell `$env:DATABASE_URL = ''`
+deletes the variable, and the file fills it in again.
 
 ---
 
@@ -324,28 +429,106 @@ elapsed     2.7s
 The single miss is "core wood" versus the article named *Corewood*: a compound
 split that lexical search cannot bridge and that the LLM rewrite does handle.
 
+`pnpm test:e2e` builds and starts the production server on
+`http://127.0.0.1:3100`, or reuses whatever already answers on that port; the
+global setup signs in with `E2E_PASSWORD` (default `valheim-dev-2026`), so the
+server's `APP_PASSWORD_HASH` must match it. Against `next dev`, run it with
+`E2E_BASE_URL=http://localhost:3100`: the dev server refuses its hot-reload
+socket to any other host, and no page hydrates without it. `app.spec.ts` asks
+the real model providers and skips with a reason when their quota is gone;
+every other spec answers translation and key requests in the browser.
+
 ---
 
 ## Deploying
 
-1. **Database** — create a Neon project, then run migrations against it:
+Production is one Docker container (`docker-compose.yml`) on a host that also
+runs the Cloudflare tunnel in front of it; the container listens on loopback
+only. The database is Neon. Nothing deploys on merge.
+
+**First time**
+
+1. **Database** — create a Neon project (with the `vector` extension), then,
+   with the owner credential:
    ```bash
-   DATABASE_URL='postgresql://…' pnpm db:migrate
+   DATABASE_URL='postgresql://owner…' pnpm db:migrate
+   DATABASE_URL='postgresql://owner…' pnpm db:app-role   # writes the app's URL to .app-role-url
    ```
-2. **Vercel** — import the repo and set:
-   `GOOGLE_GENERATIVE_AI_API_KEY`, `DATABASE_URL`, `APP_PASSWORD_HASH`,
-   `SESSION_SECRET`, `WIKI_CONTACT`.
-3. **Ingest** — run `pnpm ingest` locally against `DATABASE_URL`, or add the
-   same secrets to the repo and use the `Ingest wiki` GitHub Actions workflow.
-   It runs weekly and can be triggered by hand.
-4. **In-app re-index button** — set `GITHUB_TOKEN` (with `actions: write`) and
-   `GITHUB_REPO` (`owner/repo`) in Vercel. Without them the button explains
-   that it is not configured rather than failing silently.
+2. **Host** — clone the repo, write `.env` from `.env.example`: the app-role
+   `DATABASE_URL`, at least one model key, `APP_PASSWORD_HASH` and
+   `SESSION_SECRET` (`pnpm server:password "<password>"` writes both),
+   `WIKI_CONTACT`, `EMBEDDING_PROVIDER=local`. Then build with the CPU cap below.
+3. **Ingest** — `pnpm ingest` from a trusted machine with the owner
+   credential (it runs migrations itself), or the `Ingest wiki` GitHub Actions
+   workflow. The ingest deliberately does not run inside the web container.
+4. **In-app re-index button** — optional: `GITHUB_TOKEN` (`actions: write`)
+   and `GITHUB_REPO` (`owner/repo`). Without them the button explains that it
+   is not configured.
 
-The ingest deliberately does not run inside a Vercel function: a full pass takes
-minutes and serverless caps out at 60–300 seconds.
+**Every update**
 
----
+```bash
+# 1. Migrations first, with the owner credential. They are additive, so the
+#    version still running keeps working against the new schema.
+DATABASE_URL='postgresql://owner…' pnpm db:migrate
+
+# 2. Build and swap the container.
+ssh <host>
+cd /opt/valheim-codex && git pull --ff-only origin main
+sudo systemctl set-property --runtime docker CPUQuota=1600%
+docker compose up -d --build
+sudo systemctl set-property --runtime docker CPUQuota=
+```
+
+Migrations are not optional: the app role has no DDL rights, so a table or
+column the code expects cannot appear on first use.
+
+The image checks itself before it replaces the running container; a failed
+check fails the build and the old container keeps serving. Both checks catch
+failures nothing else would notice: the embedding model must load from the
+image (`verify-image:` in the build log), and `next start` must load the
+`next.config.ts` the build used (`verify-next-config:`). `next start` reads
+that file again when it boots; without it the server falls back to Next's
+defaults — `X-Powered-By`, a public image optimizer, 10 MB request bodies —
+and still passes its health check.
+
+**Upgrading to the chat sign-in release** (migrations 0005–0009):
+
+- Everyone signs in again once: the auth cookies became `__Host-` cookies.
+- `SESSION_SECRET` must be 32 characters or more, or password sign-in stays
+  off (the boot log says so). New optional settings: `GUEST_CHAT_MODES`,
+  `BYOK_SECRET`, `APP_ORIGIN`, `PUTER_APP_UIDS`, `ADMIN_PROFILES`,
+  `CSP_ENFORCE` and the quota knobs, all in `.env.example`.
+- The CSP starts report-only. Watch `docker logs valheim-codex | grep csp`
+  for a few days of real traffic, then add `CSP_ENFORCE=1` and
+  `docker compose up -d`.
+- Content, from a trusted machine with the owner credential, in this order
+  (`--neon` confirms a `DATABASE_URL` that comes from `.env.local`; it is not
+  needed when the URL is given in the environment, nor for `--dry-run`):
+  1. `pnpm translate:es --rebuild --dry-run`, then `--rebuild --neon` —
+     repairs the translations' doubled headings and seeds their translation
+     memory; no model calls.
+  2. `pnpm ingest --reparse --neon` — rebuilds every article with the new
+     parser, version 2: line breaks in tables and stat rows, real table
+     headers, status banners; leads that were tab labels run together
+     ("RawCooked", "MeadMead base", "HeadChestLegs"); armor sets' "Armor
+     pieces" split per quality with their tables; armor pieces' per-level
+     stats (armor, durability, weight, recipe), which the Armor comparison
+     then shows; the 16 armor-set pages left out of that comparison, since
+     their infobox is their first piece's; and the traders Hildir and Haldor,
+     "n/a" and "Console" no longer taken for crafting stations. About 1,027
+     page fetches; it re-embeds about a third of the chunks and marks most
+     translations stale, which then only pay for the strings that changed.
+     Until step 3 refreshes them, those articles keep their stale Spanish
+     leads and infoboxes (for example "CrudaCocida").
+  3. `pnpm translate:es --priority --neon`, then plain `pnpm translate:es
+     --neon` on later days. It saves as it goes and stops when the free tier
+     runs out, when no provider answers for two articles in a row, or after
+     three articles that yield nothing usable, so the next run resumes where
+     this one stopped.
+- Cloudflare: keep Rocket Loader off (it rewrites scripts and breaks
+  hydration and the CSP), and consider a rate-limiting rule on `/api/auth/*`
+  as a first line in front of the app's own limits.
 
 ### `restart` does not reload `.env`
 
@@ -407,8 +590,14 @@ pnpm db:backup       # snapshot it, every time the ingest finishes
 
 # Serve from a disposable copy, so a hard kill costs nothing:
 pnpm start:copy      # restore .data/serve from the snapshot
-PGLITE_DATA_DIR=.data/serve pnpm start
+DATABASE_URL= PGLITE_DATA_DIR=.data/serve pnpm start
 ```
+
+The app uses `DATABASE_URL` whenever it is set, and `next start` fills it in
+from `.env.local`; the empty `DATABASE_URL=` is what keeps a machine whose
+`.env.local` holds the production URL off production. In PowerShell, which
+cannot pass an empty variable, put both lines in `.env.production.local`
+instead: Next reads that file before `.env.local`, and scripts never read it.
 
 The snapshot goes stale the moment a migration or an ingest changes the schema —
 `pnpm db:backup` after every ingest is what keeps `pnpm db:restore` from

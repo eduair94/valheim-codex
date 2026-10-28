@@ -1,8 +1,29 @@
 import { jwtVerify, SignJWT } from 'jose';
 
-export const SESSION_COOKIE = 'wv_session';
+/**
+ * Name for an auth cookie.
+ *
+ * `__Host-` in production. With that prefix the browser accepts the cookie
+ * only when it is Secure, has `Path=/` and carries no `Domain`, so no sibling
+ * subdomain of digitalshopuy.com can plant or overwrite it — the same-site
+ * neighbour that `SameSite=Lax` does not keep out. Development runs on plain
+ * http with `secure: false`, which the prefix forbids, so it keeps the bare
+ * name there.
+ */
+export function authCookieName(base: string): string {
+  return process.env.NODE_ENV === 'production' ? `__Host-${base}` : base;
+}
+
+export const SESSION_COOKIE = authCookieName('wv_session');
 /** 30 days, in seconds. */
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+/**
+ * Cookie names from before the `__Host-` prefix, cleared on logout so an old
+ * browser does not keep a dead token around for a month.
+ */
+export const LEGACY_AUTH_COOKIES: readonly string[] =
+  process.env.NODE_ENV === 'production' ? ['wv_session'] : [];
 
 const ISSUER = 'wiki-valheim';
 const AUDIENCE = 'wiki-valheim-app';
@@ -58,15 +79,40 @@ export async function verifySessionToken(
   }
 }
 
-/** Cookie attributes. `secure` is off on http://localhost or the cookie is dropped. */
-export function sessionCookieOptions(isProduction: boolean) {
+/**
+ * Attributes shared by every auth cookie. `secure` is off on http://localhost
+ * or the cookie is dropped.
+ *
+ * `Lax`, not `Strict`: arriving at the chat from a link in another site or an
+ * installed-app shortcut must still carry the cookie. Lax already withholds it
+ * from cross-site POSTs, and every mutating route checks the request origin on
+ * top of that.
+ */
+export function authCookieOptions(isProduction: boolean, maxAge: number) {
   return {
     httpOnly: true,
     secure: isProduction,
     sameSite: 'lax' as const,
     path: '/',
-    maxAge: SESSION_MAX_AGE,
+    maxAge,
   };
+}
+
+/** Cookie attributes for the password session. */
+export function sessionCookieOptions(isProduction: boolean) {
+  return authCookieOptions(isProduction, SESSION_MAX_AGE);
+}
+
+/**
+ * Attributes that delete an auth cookie.
+ *
+ * `cookies().delete(name)` writes a bare `name=; Expires=…` with no Secure
+ * flag, which the browser refuses for a `__Host-` cookie — the cookie would
+ * survive logout. Expiring it with the same attributes it was set with works
+ * for both names.
+ */
+export function clearedCookieOptions(isProduction: boolean) {
+  return authCookieOptions(isProduction, 0);
 }
 
 const PROFILE_MAX_LENGTH = 32;

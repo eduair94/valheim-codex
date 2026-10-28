@@ -1,12 +1,15 @@
 import Link from 'next/link';
+import { BROWSE_HREF } from '@/components/shell/nav-model';
 import type { CategorySummary } from '@/lib/db/wiki-repo';
-import { strings, type Lang } from '@/lib/i18n/strings';
+import { BROWSE_COPY } from '@/lib/i18n/browse-copy';
+import type { Lang } from '@/lib/i18n/strings';
 import { CategoryGrid, CategoryChips, type BrowseAxis } from './category-grid';
 
+/** Each axis's groups; `label` is the display name `getBrowseAxes` gives them. */
 export type BrowseAxesData = {
-  biomes: CategorySummary[];
-  categories: CategorySummary[];
-  stations: CategorySummary[];
+  biomes: (CategorySummary & { label?: string })[];
+  categories: (CategorySummary & { label?: string })[];
+  stations: (CategorySummary & { label?: string })[];
 };
 
 /** How many of each axis get a picture. The rest are named, not pictured. */
@@ -25,6 +28,9 @@ export type TileCounts = { categories: number; stations: number };
  * cannot drift into presenting the same thing two ways. What differs is what
  * happens past the head of each list: the front page sends you to the browse
  * tab for the rest, the browse tab shows it.
+ *
+ * Spacing: 32px between axes, 12px from an axis's heading to its tiles (8px
+ * to a hint), so each heading reads as belonging to the tiles under it.
  */
 export function BrowseAxes({
   lang,
@@ -42,28 +48,38 @@ export function BrowseAxes({
    */
   overflow: 'link' | 'chips';
 }) {
-  const t = strings(lang);
+  // `BROWSE_COPY`, not the whole table: kept light should a client component
+  // ever render it again. Today only the server does (home and browse pages).
+  const t = BROWSE_COPY[lang];
 
   return (
-    <div className="flex flex-col gap-6">
-      <Section title={t.wikiBiomes} hint={t.wikiBiomesHint}>
-        {/* Ordered by the game's progression, so the numeral is the meaning. */}
-        <CategoryGrid items={data.biomes} axis="biome" ordinals />
+    <div className="flex flex-col gap-8">
+      <Section id="axis-biomes" title={t.wikiBiomes} hint={t.wikiBiomesHint}>
+        {/*
+         * Ordered by the game's progression, so the numeral is the meaning.
+         * The first axis on both pages, so its pictures are in the first
+         * screen.
+         */}
+        <CategoryGrid items={data.biomes} axis="biome" lang={lang} ordinals firstScreen />
       </Section>
 
       <Axis
+        id="axis-categories"
         title={t.wikiCategories}
         items={data.categories}
         axis="category"
+        lang={lang}
         tiles={tiles.categories}
         overflow={overflow}
         seeAll={t.wikiSeeAll}
       />
 
       <Axis
+        id="axis-stations"
         title={t.wikiStations}
         items={data.stations}
         axis="station"
+        lang={lang}
         tiles={tiles.stations}
         overflow={overflow}
         seeAll={t.wikiSeeAll}
@@ -73,16 +89,20 @@ export function BrowseAxes({
 }
 
 function Axis({
+  id,
   title,
   items,
   axis,
+  lang,
   tiles,
   overflow,
   seeAll,
 }: {
+  id: string;
   title: string;
-  items: CategorySummary[];
+  items: BrowseAxesData['categories'];
   axis: BrowseAxis;
+  lang: Lang;
   tiles: number;
   overflow: 'link' | 'chips';
   seeAll: string;
@@ -91,42 +111,47 @@ function Axis({
   const tail = items.slice(tiles);
 
   return (
-    <Section title={title} seeAll={overflow === 'link' && tail.length > 0 ? seeAll : null}>
-      <CategoryGrid items={head} axis={axis} />
-      {overflow === 'chips' && tail.length > 0 ? (
-        <CategoryChips items={tail} axis={axis} />
-      ) : null}
+    <Section id={id} title={title} seeAll={overflow === 'link' && tail.length > 0 ? seeAll : null}>
+      <CategoryGrid items={head} axis={axis} lang={lang} />
+      {overflow === 'chips' && tail.length > 0 ? <CategoryChips items={tail} axis={axis} lang={lang} /> : null}
     </Section>
   );
 }
 
 function Section({
+  id,
   title,
   hint,
   seeAll,
   children,
 }: {
+  id: string;
   title: string;
   hint?: string;
   seeAll?: string | null;
   children: React.ReactNode;
 }) {
   return (
-    <section>
-      <div className="mb-2 flex items-center gap-3">
-        <h2 className="label">{title}</h2>
+    <section aria-labelledby={id}>
+      <div className="flex items-center gap-3">
+        <h2 id={id} className="label">
+          {title}
+        </h2>
         <span className="h-px flex-1 bg-moss" aria-hidden="true" />
         {seeAll ? (
+          // 20px of line plus 12px above and below: a 44px target that
+          // takes no more room in the row than the label beside it.
           <Link
-            href="/wiki/browse"
-            className="shrink-0 font-mono text-[0.62rem] tracking-wider text-ash transition-colors hover:text-forge"
+            href={BROWSE_HREF}
+            className="-my-3 inline-flex shrink-0 items-center py-3 font-mono text-xs leading-5 tracking-wider text-ash transition-colors hover:text-forge"
           >
-            {seeAll} →
+            {seeAll}
+            <span aria-hidden="true">&nbsp;→</span>
           </Link>
         ) : null}
       </div>
-      {hint ? <p className="mb-2.5 text-[0.78rem] leading-snug text-ash">{hint}</p> : null}
-      {children}
+      {hint ? <p className="mt-2 text-sm leading-snug text-ash">{hint}</p> : null}
+      <div className="mt-3">{children}</div>
     </section>
   );
 }

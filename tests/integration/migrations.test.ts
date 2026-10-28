@@ -58,6 +58,47 @@ describe('migrations', () => {
     expect((res as { rows: unknown[] }).rows).toHaveLength(1);
   });
 
+  it('creates the recipe tables, whose migration also applies a second time', async () => {
+    const tables = await handle.db.execute(sql`
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public' AND tablename IN ('page_recipes', 'recipe_graph')
+      ORDER BY tablename
+    `);
+    expect((tables as { rows: { tablename: string }[] }).rows.map((r) => r.tablename)).toEqual([
+      'page_recipes',
+      'recipe_graph',
+    ]);
+
+    // A page's recipes go with the page.
+    const keys = await handle.db.execute(sql`
+      SELECT confdeltype FROM pg_constraint WHERE conrelid = 'page_recipes'::regclass AND contype = 'f'
+    `);
+    expect((keys as { rows: { confdeltype: string }[] }).rows.map((r) => r.confdeltype)).toEqual(['c']);
+
+    const indexes = await handle.db.execute(sql`SELECT indexname FROM pg_indexes WHERE tablename = 'recipe_graph'`);
+    expect((indexes as { rows: { indexname: string }[] }).rows.map((r) => r.indexname)).toContain('recipe_graph_built_idx');
+
+    // As if it had never been recorded: every statement must accept what it already made.
+    await handle.db.execute(sql`DELETE FROM _migrations WHERE name = '0010_recipes.sql'`);
+    const { runMigrations } = await import('@/lib/db/migrate');
+    expect(await runMigrations(handle)).toEqual(['0010_recipes.sql']);
+  });
+
+  it("lets the app's role read the recipe graph, and nothing else of the recipes", async () => {
+    // The grant runs only where the role exists, which outside this test is production alone.
+    await handle.db.execute(sql`CREATE ROLE valheim_app`);
+    await handle.db.execute(sql`DELETE FROM _migrations WHERE name = '0010_recipes.sql'`);
+    const { runMigrations } = await import('@/lib/db/migrate');
+    expect(await runMigrations(handle)).toEqual(['0010_recipes.sql']);
+
+    const res = await handle.db.execute(sql`
+      SELECT has_table_privilege('valheim_app', 'recipe_graph', 'SELECT') AS read_graph,
+             has_table_privilege('valheim_app', 'recipe_graph', 'INSERT, UPDATE, DELETE') AS write_graph,
+             has_table_privilege('valheim_app', 'page_recipes', 'SELECT, INSERT, UPDATE, DELETE') AS use_page_recipes
+    `);
+    expect((res as { rows: unknown[] }).rows[0]).toEqual({ read_graph: true, write_graph: false, use_page_recipes: false });
+  });
+
   it('is idempotent', async () => {
     const { runMigrations } = await import('@/lib/db/migrate');
     const ran = await runMigrations(handle);

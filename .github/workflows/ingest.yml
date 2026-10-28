@@ -15,9 +15,18 @@ on:
         type: boolean
         required: false
         default: false
+      reparse:
+        description: Also re-parse the pages an older parser built (their translations go stale where the text changes)
+        type: boolean
+        required: false
+        default: false
   schedule:
     # Weekly, Mondays 04:00 UTC. Incremental, so an ordinary week is cheap.
     - cron: '0 4 * * 1'
+
+# The job only reads the repository; the database is reached with its own secret.
+permissions:
+  contents: read
 
 concurrency:
   # Two ingests writing the same database would fight over every page.
@@ -29,29 +38,66 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
+    env:
+      # Must name the provider that built the index, which is also the one the
+      # app embeds questions with (the Dockerfile sets EMBEDDING_PROVIDER=local).
+      # Left unset it defaulted to gemini, and the ingest used to answer a
+      # mismatch by dropping every stored vector. It now stops instead, before
+      # writing anything; switching providers is a deliberate local
+      # `pnpm ingest --switch-provider=<id>`, never a scheduled run.
+      EMBEDDING_PROVIDER: local
+      # Where transformers.js keeps the model, so the cache step can find it.
+      MODEL_CACHE_DIR: ${{ github.workspace }}/.model-cache
+
+    # Every action is pinned to a full commit SHA, its release in a comment
+    # (.github/dependabot.yml keeps them current). A tag is whatever commit
+    # the action's owner points it at next, and every step of this job runs
+    # before, or alongside, the ones that hold the production database's
+    # owner credential: a moved tag would run on the next Monday's schedule
+    # with nobody pushing anything.
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          version: 9
+          # Nothing here pushes, so the job's token is not left in .git/config.
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      # No `version:` here: pnpm/action-setup reads `packageManager` from
+      # package.json, and naming a version as well fails the job with
+      # "Multiple versions of pnpm specified".
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 
+      # ~280 MB, the same every week until the model or transformers.js changes.
+      - name: Cache the embedding model
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .model-cache
+          key: embedding-model-${{ runner.os }}-${{ hashFiles('src/lib/rag/embed-local.ts', 'pnpm-lock.yaml') }}
+
+      - name: Load the embedding model
+        run: pnpm prefetch:model
+
       - name: Run ingest
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           WIKI_CONTACT: ${{ secrets.WIKI_CONTACT }}
+          # Inputs reach the shell as environment variables, never as text
+          # spliced into the script: `${{ inputs.trigger }}` inside `run:`
+          # would execute whatever a dispatcher put in the label.
+          TRIGGER: ${{ inputs.trigger || 'schedule' }}
+          FULL: ${{ inputs.full }}
+          REPARSE: ${{ inputs.reparse }}
         run: |
-          pnpm ingest \
-            --trigger "${{ inputs.trigger || 'schedule' }}" \
-            ${{ inputs.full && '--full' || '' }}
+          args=("--trigger=$TRIGGER")
+          if [ "$FULL" = "true" ]; then args+=(--full); fi
+          if [ "$REPARSE" = "true" ]; then args+=(--reparse); fi
+          pnpm ingest "${args[@]}"
 
       - name: Check retrieval quality
         env:

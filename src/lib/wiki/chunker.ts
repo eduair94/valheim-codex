@@ -4,10 +4,28 @@ import { estimateTokens, hashContent } from './text';
 
 /** Upper bound for a chunk, in estimated tokens. */
 export const MAX_CHUNK_TOKENS = 400;
-/** Below this a chunk carries too little signal to be worth an embedding. */
+/**
+ * Below this a chunk carries too little signal to be worth an embedding —
+ * unless it is a whole section that says something (`worthKeeping`).
+ */
 export const MIN_PROSE_TOKENS = 9;
 /** Paragraphs repeated from the previous chunk when splitting long prose. */
 const OVERLAP_PARAGRAPHS = 1;
+
+/**
+ * Whether prose under `MIN_PROSE_TOKENS` is still worth a chunk: a section
+ * with a heading and a word of three letters or more in its body.
+ *
+ * The threshold counts the breadcrumb, which on a short section is most of
+ * the chunk, so it dropped sections whose whole content is a name or two:
+ * "Flax › Usage › Taming" is "Lox", "Turnip › Usage › Taming" is "Boar".
+ * With no chunk at all, no retrieval could ever say what flax tames. Eight
+ * headed sections were lost that way, five of them Usage lists. A lead that
+ * short, or a stray mark under a heading, still goes.
+ */
+function worthKeeping(sectionPath: string, body: string): boolean {
+  return sectionPath !== '' && /\p{L}{3}/u.test(body);
+}
 
 export type ChunkOptions = {
   sourceRank: number;
@@ -30,7 +48,7 @@ export function chunkPage(parsed: ParsedPage, options: ChunkOptions): WikiChunk[
   const push = (kind: WikiChunk['kind'], sectionPath: string, body: string): void => {
     const content = withContext(page.title, sectionPath, body);
     const tokenCount = estimateTokens(content);
-    if (kind === 'prose' && tokenCount < MIN_PROSE_TOKENS) return;
+    if (kind === 'prose' && tokenCount < MIN_PROSE_TOKENS && !worthKeeping(sectionPath, body)) return;
     const ordinal = chunks.length;
     chunks.push({
       id: `${page.source}:${page.pageId}:${kind}:${ordinal}`,

@@ -242,18 +242,20 @@ describe('wiki reading layer', () => {
       const table = await buildCompareTable(handle.db, { category: 'Creatures' });
       expect(table.rows.map((r) => r.title)).toEqual(['Bonemass', 'Deathsquito']);
       expect(table.columns.length).toBeGreaterThan(0);
-      // Both creatures state these, so both must be columns.
+      // Both creatures state these: the biome differs and is a column; the
+      // internal ID names the row, which its header already does.
       expect(table.columns).toContain('Main biome');
-      expect(table.columns).toContain('Internal ID');
+      expect(table.columns).not.toContain('Internal ID');
     });
 
-    it('reads values from the first upgrade level unless told otherwise', async () => {
-      const base = await buildCompareTable(handle.db, { category: 'Weapons' });
-      const sword = base.rows.find((r) => r.title === 'Iron Sword')!;
-      expect(sword.values['Durability']).toBe('200');
-
-      const level4 = await buildCompareTable(handle.db, { category: 'Weapons' }, { tab: '4' });
-      expect(level4.rows.find((r) => r.title === 'Iron Sword')!.values['Durability']).toBe('350');
+    it('has no table for a set of one, which shares its stats with nothing', async () => {
+      // The level choice is covered over three weapons in
+      // search-data.test.ts ('reads the first level unless asked for another').
+      expect(await buildCompareTable(handle.db, { category: 'Weapons' })).toEqual({ columns: [], rows: [] });
+      expect(await buildCompareTable(handle.db, { category: 'Weapons' }, { tab: '4' })).toEqual({
+        columns: [],
+        rows: [],
+      });
     });
 
     it('excludes articles with no infobox to compare', async () => {

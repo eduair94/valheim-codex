@@ -1,0 +1,170 @@
+/*
+  Prose: the chat's answers (`.answer`) and the article's text
+  (`.article-body`), plus the article's breadcrumb links. Imported by those
+  two routes' pages (app/page.tsx, app/wiki/a/[slug]/page.tsx), not globally.
+
+  All in `@layer components`, so a utility on the same element wins: an
+  article list's `max-w-[68ch]` is its measure, not the 68ch default below,
+  and its colour is the one written on it (LD-12).
+
+  The `@reference` emits nothing: it gives the color-mix() below a fallback
+  in plain colour, for browsers without color-mix() (globals.css says more).
+*/
+@reference '../globals.css';
+
+@layer components {
+  /* Answer prose: measured for reading, not for filling the pane. */
+  .answer {
+    max-width: 68ch;
+  }
+  .answer p {
+    margin-bottom: 0.75rem;
+  }
+  .answer p:last-child {
+    margin-bottom: 0;
+  }
+  .answer ul,
+  .answer ol {
+    margin: 0.5rem 0 0.75rem;
+    padding-left: 1.25rem;
+  }
+  /*
+    An article list carries the class itself (`<ul class="answer">`), so the
+    rules that reach into an answer's lists also name the list directly.
+    Without that, article lists had no bullets, no numbers and no indent.
+  */
+  ul.answer,
+  ol.answer {
+    padding-left: 1.25rem;
+  }
+  .answer li {
+    margin-bottom: 0.25rem;
+    list-style: none;
+    position: relative;
+  }
+  .answer li:last-child {
+    margin-bottom: 0;
+  }
+  .answer ul li::before,
+  ul.answer li::before {
+    content: '·';
+    position: absolute;
+    left: -0.9rem;
+    color: var(--color-forge);
+    font-weight: 700;
+  }
+  .answer ol,
+  ol.answer {
+    counter-reset: item;
+  }
+  .answer ol li::before,
+  ol.answer li::before {
+    counter-increment: item;
+    content: counter(item) '.';
+    position: absolute;
+    left: -1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.8em;
+    color: var(--color-forge);
+  }
+  /* Crafting quantities and stats line up when they are monospaced. */
+  .answer strong {
+    font-weight: 600;
+    color: #f2ecda;
+  }
+  .answer code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    color: var(--color-forge);
+  }
+
+  /*
+    A name in the text that leads to its article (`LinkedText`): underlined
+    rather than coloured, so a stat block does not flicker with a third
+    colour, and the underline brightens on hover. A class rather than
+    utilities because an article carries dozens of these, each sent twice.
+  */
+  .text-link {
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-forge) 50%, transparent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+    transition:
+      color 150ms ease-out,
+      text-decoration-color 150ms ease-out;
+  }
+  .text-link:hover {
+    color: var(--color-birch);
+    text-decoration-color: var(--color-forge);
+  }
+
+  /*
+    The article's text: tight within a section, generous between sections,
+    and more room above a heading than below it, so each heading belongs to
+    what follows it. A heading straight after its parent heading (a section
+    with no text of its own) stays close to it.
+  */
+  .article-body > * + * {
+    margin-top: 1rem;
+  }
+  .article-body > h2 {
+    margin-top: 2.5rem;
+  }
+  .article-body > h3 {
+    margin-top: 2rem;
+  }
+  .article-body > :is(h4, h5, h6) {
+    margin-top: 1.5rem;
+  }
+  .article-body > :is(h2, h3, h4, h5, h6) + * {
+    margin-top: 0.75rem;
+  }
+  .article-body > :first-child {
+    margin-top: 0;
+  }
+
+  /*
+    A word too long for its line breaks instead of widening the page: a
+    console command ("export LD_LIBRARY_PATH=./linux64:…"), a macOS path, a
+    URL. On a phone one such word made the whole article scroll sideways (by
+    127px at 360px on Dedicated servers) and stretched the tab bar past the
+    screen. `break-word` rather than `anywhere`, as in the chat's answers
+    (chat.css): `anywhere` would also lower a table's narrowest width, and
+    from 640px the article's tables keep their columns and scroll in their
+    own frame. The phone cards' cells already break anywhere (tables.css).
+  */
+  .article-body {
+    overflow-wrap: break-word;
+  }
+
+  /*
+    Breadcrumb links: small text with a fingertip-sized target. On a touch
+    screen the target grows to 44px tall, and a negative margin of the same
+    amount keeps the line where it was (LM-11); and at least 44px wide, so a
+    short category ("PNJ") is as easy to hit as a long one. The extra width
+    falls after the word, which stays where it was.
+  */
+  .crumb {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    color: var(--color-ash);
+    text-decoration-line: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 4px;
+    transition:
+      color 150ms ease-out,
+      text-decoration-color 150ms ease-out;
+  }
+  .crumb:hover {
+    color: var(--color-birch);
+    text-decoration-color: currentColor;
+  }
+  @media (pointer: coarse) {
+    .crumb {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+      margin-block: -0.625rem;
+    }
+  }
+}

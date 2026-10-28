@@ -98,6 +98,31 @@ describe('chunkPage', () => {
     }
   });
 
+  /*
+   * The size floor counts the breadcrumb, which on a short section is most of
+   * the chunk: "Flax › Usage › Taming" is "Lox", and with no chunk at all no
+   * retrieval could say what flax tames.
+   */
+  it('keeps a short section that names something, and drops a short lead or a bare mark', () => {
+    const parsed: ParsedPage = {
+      page: {
+        source: 'fandom', pageId: 12, title: 'Flax', url: 'https://example.test/Flax',
+        revid: 1, categories: [], html: '',
+      },
+      infobox: null,
+      sections: [
+        { path: '', text: 'A crop.', tables: [] },
+        { path: 'Usage > Building', text: 'Straw', tables: [] },
+        { path: 'Usage > Taming', text: 'Lox', tables: [] },
+        { path: 'Trivia', text: '—', tables: [] },
+        { path: 'Notes', text: 'Ox', tables: [] },
+      ],
+    };
+    const chunks = chunkPage(parsed, { sourceRank: 0 });
+    expect(chunks.map((c) => c.content)).toEqual(['Flax › Usage › Building\nStraw', 'Flax › Usage › Taming\nLox']);
+    expect(chunks.every((c) => c.tokenCount < 9)).toBe(true);
+  });
+
   it('splits long prose with overlap so a fact is never orphaned at a boundary', () => {
     const paragraphs = Array.from({ length: 12 }, (_, i) =>
       `Paragraph ${i} ${'filler words to make this long enough to matter '.repeat(12)}`,
@@ -116,6 +141,16 @@ describe('chunkPage', () => {
       const previousTail = chunks[i - 1]!.content.split('\n\n').at(-1)!;
       expect(chunks[i]!.content).toContain(previousTail.slice(0, 40));
     }
+  });
+
+  it('never splits a table row or an infobox line at a value’s own line break', async () => {
+    // Cells and infobox values now keep their line breaks; chunks are split
+    // on lines, so those breaks must not reach them.
+    const chunks = chunkPage(await parseFixture('Iron_Sword', 'Iron Sword'), { sourceRank: 0 });
+    const level1 = chunks.find((c) => c.kind === 'infobox' && c.sectionPath === 'Level 1')!;
+    expect(level1.content).toMatch(/Crafting Materials: Wood x2; Iron x20; Leather scraps x3/);
+    const upgrades = chunks.find((c) => c.kind === 'table' && c.content.includes('Quality: Crafting'))!;
+    expect(upgrades.content).toMatch(/1: 2 Wood, 20 Iron, 3 Leather scraps/);
   });
 
   it('emits table chunks separately from prose', async () => {
