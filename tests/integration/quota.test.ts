@@ -80,6 +80,23 @@ describe('consumeQuota', () => {
     expect(await consumeQuota(handle.db, buckets, now)).toMatchObject({ allowed: false, bucket: 'chat:guest' });
   });
 
+  it('spends a shared ceiling only on calls every narrower ceiling allowed', async () => {
+    // One address hammering past its own limit must not use up everyone's day.
+    const now = new Date('2026-10-26T14:00:00Z');
+    const day = 24 * 60 * MINUTE;
+    const from = (ip: string) => [
+      { name: `test:g-ip:${ip}`, limit: 1, windowMs: MINUTE },
+      { name: 'test:g-global', limit: 3, windowMs: day },
+    ];
+    expect((await consumeQuota(handle.db, from('203.0.113.9'), now)).allowed).toBe(true);
+    for (let i = 0; i < 10; i++) {
+      expect(await consumeQuota(handle.db, from('203.0.113.9'), now)).toMatchObject({ allowed: false, bucket: 'test:g-ip' });
+    }
+    expect((await consumeQuota(handle.db, from('198.51.100.2'), now)).allowed).toBe(true);
+    expect((await consumeQuota(handle.db, from('198.51.100.3'), now)).allowed).toBe(true);
+    expect(await consumeQuota(handle.db, from('198.51.100.4'), now)).toMatchObject({ allowed: false, bucket: 'test:g-global' });
+  });
+
   it('creates its table when a deployment skipped the migration', async () => {
     const bare = await createDb();
     try {

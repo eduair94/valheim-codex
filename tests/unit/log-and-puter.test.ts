@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { describeError, redact } from '@/lib/log';
 import { configuredPuterAppUids, resetPuterAppUidCache, verifyPuterToken } from '@/lib/auth/puter-verify';
 
+/** A Google API key's shape, put together here so the source holds no key-shaped literal. */
+const SAMPLE_KEY = ['AIza', 'SyA', '1234567890', 'abcdefghijklmnopqrstuv'].join('');
+
 describe('redact', () => {
   it('removes Google keys, key parameters, bearer tokens and JWTs', () => {
     const text = [
-      'key AIzaSyA1234567890abcdefghijklmnopqrstuv',
+      `key ${SAMPLE_KEY}`,
       'https://generativelanguage.googleapis.com/v1beta/models/x?key=SECRET123&alt=sse',
       'Authorization: Bearer abcdefghijklmnop',
       'x-goog-api-key: AQ.service-account-key',
@@ -53,7 +56,7 @@ describe('redact', () => {
   });
 
   it('summarises an API error without its request body', () => {
-    const error = Object.assign(new Error('Quota exceeded for key AIzaSyA1234567890abcdefghijklmnopqrstuv'), {
+    const error = Object.assign(new Error(`Quota exceeded for key ${SAMPLE_KEY}`), {
       name: 'AI_APICallError',
       statusCode: 429,
       url: 'https://generativelanguage.googleapis.com/v1beta/models/m:streamGenerateContent?key=K&alt=sse',

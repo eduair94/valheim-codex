@@ -5,13 +5,17 @@ import { rawQuery, type Db } from '@/lib/db/create-db';
  * Fixed-window quotas stored in Postgres (`rate_limits`).
  *
  * The same reasoning as the login limiter: the database is the only state
- * every process agrees on, and a fixed window is one upsert per bucket. All of
- * a request's buckets — per identity, per address, global — are counted in a
- * single statement, so a quota check costs one round trip however many
- * ceilings apply.
+ * every process agrees on, and a fixed window is one upsert per bucket. A
+ * request's own buckets (per identity, per address) are counted in a single
+ * statement, and its shared ones in a second, so a quota check costs at most
+ * two round trips however many ceilings apply.
  *
- * Every call counts, allowed or not: a client hammering past its limit keeps
- * its window full rather than earning a free retry.
+ * Every call counts against its own buckets, allowed or not: a client
+ * hammering past its limit keeps its window full rather than earning a free
+ * retry. A shared bucket (everyone's: `chat:guest-global`) counts only calls
+ * that every narrower bucket allowed. Counted with the rest, one address past
+ * its own limit could spend everyone's day: a thousand refused Puter sign-ins
+ * from one client closed Puter sign-in for every reader until midnight.
  */
 
 export type QuotaBucket = {
@@ -74,12 +78,35 @@ function bucketKind(name: string): string {
   return name.split(':').slice(0, 2).join(':');
 }
 
+/** A bucket that counts everyone (`chat:guest-global`), not one subject (`chat:guest-ip:203.0.113.7`). */
+function isShared(bucket: QuotaBucket): boolean {
+  return bucket.name.split(':').length <= 2;
+}
+
 export async function consumeQuota(db: Db, buckets: QuotaBucket[], now: Date = new Date()): Promise<QuotaDecision> {
-  const rows = new Map<string, { bucket: QuotaBucket; windowStart: Date }>();
   for (const bucket of buckets) {
     if (bucket.limit <= 0) {
       return { allowed: false, bucket: bucketKind(bucket.name), retryAfterSeconds: Math.ceil(bucket.windowMs / 1000) };
     }
+  }
+  // The subject's own buckets first; the shared ones only for a call they all allowed.
+  const own = await countBuckets(
+    db,
+    buckets.filter((bucket) => !isShared(bucket)),
+    now,
+  );
+  if (!own.allowed) return own;
+  return countBuckets(
+    db,
+    buckets.filter((bucket) => isShared(bucket)),
+    now,
+  );
+}
+
+/** Adds one call to each bucket, in one statement, and decides from the counts. */
+async function countBuckets(db: Db, buckets: QuotaBucket[], now: Date): Promise<QuotaDecision> {
+  const rows = new Map<string, { bucket: QuotaBucket; windowStart: Date }>();
+  for (const bucket of buckets) {
     const windowStart = new Date(Math.floor(now.getTime() / bucket.windowMs) * bucket.windowMs);
     rows.set(`${bucket.name}|${bucket.windowMs}`, { bucket, windowStart });
   }
