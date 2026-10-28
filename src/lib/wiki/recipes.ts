@@ -40,7 +40,11 @@ import { cleanText } from './text';
  *     article; on a station's page, its table of extensions, the only place
  *     the Artisan press's recipe is stated;
  *   - the food table's station, station level and multiplier, which state a
- *     cauldron level the foods' own infoboxes leave out.
+ *     cauldron level the foods' own infoboxes leave out;
+ *   - an item's table of upgrades ("Upgrade information"), which states its
+ *     steps a second time, and sometimes otherwise: the graph's report is
+ *     where the two disagree, and a quality the infobox leaves out (the
+ *     Staff of Protection's fourth) is stated there alone.
  *
  * What it leaves out: tables of things that are carried rather than built.
  * Each of those things has an article that states its recipe (the Crafting
@@ -131,7 +135,41 @@ export type RawFoodRow = {
   multiplier: number | null;
 };
 
-export type PageRecipes = { infoboxes: RawInfobox[]; listRows: RawListRow[]; foodRows: RawFoodRow[] };
+/**
+ * An item's table of what each of its qualities costs, under "Upgrade
+ * information": a header "Quality | 1 | 2 | 3 | 4" (and a "Total" after the
+ * levels, which sums them and is no level), a row of materials ("Crafting",
+ * "Cost") and a row of the station's level ("Forge level").
+ *
+ * It states the steps the item's infobox states, a second time, and not
+ * always the same way: the Wood Tower Shield's table asks 6 Leather scraps
+ * for the first quality where its infobox asks 4, and the Staff of
+ * Protection's goes on to a fourth quality its infobox leaves out. Kept as
+ * written, like the infobox, for the graph to compare.
+ */
+export type RawUpgradeTable = {
+  /** The heading the table sits under ("Upgrade information"). */
+  anchor: string | null;
+  /** The station its level row names, as written: "Galdr table", from "Galdr table level". */
+  station: string | null;
+  /** Per quality column, the step's materials and the station's level; only columns that name a material. */
+  levels: RawLevel[];
+  /** Cells it could not read, each starting with its quality, as an infobox's notes do. */
+  notes: string[];
+};
+
+export type PageRecipes = {
+  infoboxes: RawInfobox[];
+  listRows: RawListRow[];
+  foodRows: RawFoodRow[];
+  /**
+   * The page's own item's table of upgrades, read beside its infobox. Null
+   * on a page with none, and on one with no infobox of its own (an armor
+   * set: whose table it would be is anybody's guess). Absent from recipes
+   * an extractor before version 2 read.
+   */
+  upgradeTable?: RawUpgradeTable | null;
+};
 
 /**
  * Reads the recipes a page states.
@@ -161,6 +199,7 @@ export function extractRecipes(html: string, page: { title: string } | null): Pa
     infoboxes,
     listRows: readListRows(doc, asides.length === 0 ? null : infoboxes),
     foodRows: readFoodRows(doc),
+    upgradeTable: infoboxes.some((box) => box.tab === null) ? readUpgradeTable(doc) : null,
   };
 }
 
@@ -442,6 +481,14 @@ function readCell(doc: Doc, value: Element): Cell {
 
   for (const line of lines) {
     const read = parseRecipeCell(line.text);
+    // "Pike x1 Tuna x1 …", one link per fish: a line read whole is one
+    // material with a count in its name, and the links say where each
+    // material starts.
+    const split = read.notes.length > 0 ? splitAtLinks(line) : null;
+    if (split) {
+      cell.entries.push(...split);
+      continue;
+    }
     if (read.yield !== null) {
       // As in parseRecipeCell: a second yield that disagrees is not chosen.
       if (cell.yield !== null && cell.yield !== read.yield) {
@@ -491,6 +538,46 @@ function linkFor(name: string, links: RawLink[]): RawLink | null {
 }
 
 /**
+ * A line of several linked materials, each with its count, as its entries:
+ * "<a>Pike</a> x1 <a>Tuna</a> x1", or count first, "20 <a>Refined eitr</a>
+ * 4 <a>Wisp</a>". Cut where each link starts (or, count first, where the
+ * count before it does), every piece must be exactly one material named like
+ * its link, and nothing may be left over; otherwise the line is not a list of
+ * materials ("5 Bronze (or 10 Copper)") and null says so.
+ */
+function splitAtLinks(line: Line): RawEntry[] | null {
+  if (line.links.length < 2) return null;
+  const [lead = '', ...rest] = line.pieces;
+
+  const byName = lead === '' ? rest : null;
+  // Count first: the count of each material ends the piece before its link.
+  let byCount: string[] | null = [];
+  let count = /^(\d+)$/.exec(lead)?.[1];
+  for (const [i, piece] of rest.entries()) {
+    const next = i < rest.length - 1 ? /^(.*?)\s*(\d+)$/.exec(piece) : null;
+    if (count === undefined || (i < rest.length - 1 && !next)) {
+      byCount = null;
+      break;
+    }
+    byCount.push(`${count} ${next ? next[1] : piece}`);
+    count = next?.[2];
+  }
+
+  for (const pieces of [byName, byCount]) {
+    if (!pieces) continue;
+    const entries = pieces.map((piece, i): RawEntry | null => {
+      const read = parseRecipeCell(piece);
+      const only = read.entries.length === 1 && read.notes.length === 0 && read.yield === null;
+      const entry = only ? read.entries[0]! : null;
+      const link = entry ? linkFor(entry.name, [line.links[i]!]) : null;
+      return entry && link ? { text: entry.name, qty: entry.qty, link } : null;
+    });
+    if (entries.every((entry) => entry !== null)) return entries;
+  }
+  return null;
+}
+
+/**
  * Whether a material's name is a heading run into the material it heads:
  * "Small: Finewood", where a link names "Finewood" and none names "Small".
  * Each of the Yuleklapp's three sizes written that way would otherwise be
@@ -518,6 +605,15 @@ const LINKS = 'a, .mw-selflink';
 const MARK_OPEN = String.fromCharCode(0xe000);
 const MARK_CLOSE = String.fromCharCode(0xe001);
 const LINK_MARK = new RegExp(`${MARK_OPEN}([0-9]+)${MARK_CLOSE}`, 'g');
+/** The same mark, for cutting a line where each link starts. */
+const LINK_SPLIT = new RegExp(`${MARK_OPEN}[0-9]+${MARK_CLOSE}`);
+
+/**
+ * A line of a cell: its text, the links that start on it, and its text cut
+ * where each of them starts (`pieces`: what comes before the first link,
+ * then one piece from each link's start to the next's).
+ */
+type Line = { text: string; links: RawLink[]; pieces: string[] };
 
 /**
  * A cell's lines, as the reader shows them (one per `<br>`, list item or
@@ -527,7 +623,7 @@ const LINK_MARK = new RegExp(`${MARK_OPEN}([0-9]+)${MARK_CLOSE}`, 'g');
  * the copy's lines, so the lines are the same ones every other reader of
  * the page gets.
  */
-function cellLines(doc: Doc, value: Element): { text: string; links: RawLink[] }[] {
+function cellLines(doc: Doc, value: Element): Line[] {
   const { $ } = doc;
   const copy = $(value).clone();
   const links: RawLink[] = [];
@@ -547,6 +643,7 @@ function cellLines(doc: Doc, value: Element): { text: string; links: RawLink[] }
       links: [...line.matchAll(LINK_MARK)]
         .map((mark) => links[Number(mark[1])])
         .filter((link) => link !== undefined),
+      pieces: line.split(LINK_SPLIT).map((piece) => cleanText(piece)),
     }))
     .filter((line) => line.text);
 }
@@ -750,6 +847,91 @@ function sectionOf($: Api, el: Element): string | null {
       if (text) return text;
     }
   }
+  return null;
+}
+
+/** The first header of a table of upgrades, over its label column. */
+const QUALITY_HEADER = /^quality$/i;
+
+/** A table of upgrades' row of materials: "Crafting" on most items, "Crafting recipe" or "Cost" on a few. */
+const UPGRADE_MATERIALS = /^(crafting( recipe| cost)?|cost|recipe)$/i;
+
+/**
+ * A table of upgrades' row of the station's level, "Forge level" or
+ * "Workbench level required", and in it the station. Not "Per Level", the
+ * Staff of Protection's absorption per blood magic level.
+ */
+const UPGRADE_LEVEL = /^(?!per\b)(.+?)\s+level(?:\s+required)?$/i;
+
+/**
+ * The table of upgrades of the page's own item (see `RawUpgradeTable`): the
+ * first table whose header is "Quality" and the qualities from 1 on, with a
+ * row of materials. Each quality's cell is read as a recipe cell is, and
+ * its level as the number its cell starts with, whatever follows: "6 (not
+ * yet available)" is Black forge level 6. Whether the
+ * game has that level is for the overrides to say (`stationMaxLevel`,
+ * `notYetAvailable`), as for every other statement of a level: 1.0 gave
+ * the Black forge its sixth, and the 22 steps at its seventh are listed
+ * as not yet available.
+ *
+ * A row is named by its last label before the first quality, so a label
+ * that groups several rows ("Damage absorbed") does not hide the row's own
+ * ("Per Level").
+ */
+function readUpgradeTable(doc: Doc): RawUpgradeTable | null {
+  const { $ } = doc;
+  for (const table of $('table').toArray() as Element[]) {
+    if ($(table).closest('aside.portable-infobox').length > 0) continue;
+    // Most tables are something else, and their first cell says so before any grid is laid out.
+    const first = $(table).find('tr').first().children('th, td').first();
+    if (!QUALITY_HEADER.test(cleanText(first.text()))) continue;
+    const grid = tableCells($, table);
+    if (!grid || !QUALITY_HEADER.test(grid.header[0] ?? '')) continue;
+
+    const columns: { index: number; quality: number }[] = [];
+    grid.header.forEach((label, index) => {
+      if (/^\d+$/.test(label) && Number(label) === columns.length + 1) columns.push({ index, quality: Number(label) });
+    });
+    const labelAt = (columns[0]?.index ?? 0) - 1;
+    if (columns.length === 0 || labelAt < 0) continue;
+    const label = (cells: (Element | undefined)[]): string => {
+      const cell = cells[labelAt];
+      return cell ? cleanText(inlineText(cell)) : '';
+    };
+    const materials = grid.rows.find((cells) => UPGRADE_MATERIALS.test(label(cells)) || isRecipeLabel(label(cells)));
+    if (!materials) continue;
+    const levelRow = grid.rows.find((cells) => UPGRADE_LEVEL.test(label(cells)));
+    const station = levelRow ? (UPGRADE_LEVEL.exec(label(levelRow))?.[1] ?? null) : null;
+
+    const notes: string[] = [];
+    const levels: RawLevel[] = [];
+    for (const { index, quality } of columns) {
+      const cell = materials[index];
+      if (!cell) continue;
+      const read = readCell(doc, cell);
+      notes.push(...read.notes.map((note) => inQuality(quality, note)));
+      if (read.entries.length === 0) continue;
+      levels.push({
+        quality,
+        stationLevel: tableLevel(levelRow?.[index], quality, station, notes),
+        yield: read.yield,
+        entries: read.entries,
+      });
+    }
+    return { anchor: sectionOf($, table), station, levels, notes };
+  }
+  return null;
+}
+
+/**
+ * A station's level in a table of upgrades: the number its cell starts with,
+ * or null for an empty one, "-" or "n/a". Anything else is a note.
+ */
+function tableLevel(cell: Element | undefined, quality: number, station: string | null, notes: string[]): number | null {
+  const text = cell ? lineText(cell).replace(/\s+/g, ' ') : '';
+  const level = /^(\d+)\b/.exec(text);
+  if (level) return Number(level[1]);
+  if (!/^(nil|n\/?a|none|-+|—|–)?$/i.test(text)) notes.push(inQuality(quality, `${station ?? 'Station'} level: ${text}`));
   return null;
 }
 

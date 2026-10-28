@@ -1,13 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sql } from 'drizzle-orm';
+import type { RecipeGraph } from '@/lib/craft/types';
 import type { Db, DbHandle } from '@/lib/db/create-db';
 import { rawQuery } from '@/lib/db/create-db';
+import { getLatestRecipeGraph, isRecipeGraphBehind } from '@/lib/db/recipe-repo';
+import { EMBEDDING_PROVIDER_KEY, getSetting } from '@/lib/db/repo';
 import { getArticleBySlug, getTranslation, saveTranslation } from '@/lib/db/wiki-repo';
-import { runIngest, staleness, type ProgressEvent } from '@/lib/ingest/run';
+import { IngestConfigError, recipeStaleness, runIngest, staleness, type ProgressEvent } from '@/lib/ingest/run';
 import { NO_ARTICLE, UNFINISHED } from '@/lib/ingest/store';
 import { PARSER_VERSION } from '@/lib/ingest/version';
 import { MediaWikiClient, type FetchLike } from '@/lib/wiki/mediawiki';
+import { RECIPES_VERSION } from '@/lib/wiki/recipes-version';
 import { createTestDb } from '../helpers/db';
 import { fakeEmbed } from '../helpers/fake-embed';
 
@@ -30,13 +34,19 @@ type FakePage = {
 function fakeWiki(pages: FakePage[]) {
   // Deep copy: tests mutate revids, and a shallow copy would leak that
   // mutation into every later test through the shared PAGES objects.
-  const state = { pages: pages.map((p) => ({ ...p })), parseCalls: 0, revisionCalls: 0 };
+  const state = { pages: pages.map((p) => ({ ...p })), parseCalls: 0, revisionCalls: 0, redirectCalls: 0 };
 
   const fetchImpl: FetchLike = async (url: string) => {
     const params = new URL(url).searchParams;
     const json = (body: unknown) =>
       new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
+    // The recipe graph asks where the titles its recipes name lead; here, as
+    // for titles that are no redirect, nowhere.
+    if (params.get('redirects') === '1') {
+      state.redirectCalls += 1;
+      return json({ query: {} });
+    }
     if (params.get('list') === 'allpages') {
       return json({
         query: { allpages: state.pages.map((p) => ({ pageid: p.pageid, title: p.title })) },
@@ -99,7 +109,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await handle.db.execute(sql`TRUNCATE pages, settings, ingest_runs CASCADE`);
+  // The recipe graphs hang from no page, so the cascade does not reach them.
+  await handle.db.execute(sql`TRUNCATE pages, settings, ingest_runs, recipe_graph CASCADE`);
 });
 
 describe('runIngest', () => {
@@ -587,6 +598,317 @@ describe('runIngest — parser versions and translations', () => {
     const after = (await getArticleBySlug(handle.db, 'iron'))!;
     expect(after.categories).toEqual(['Materials', 'Ores']);
     expect((await getTranslation(handle.db, before.pageKey, 'es'))!.stale).toBe(false);
+  });
+});
+
+describe('runIngest — recipes and the recipe graph', () => {
+  const ingest = (fetchImpl: FetchLike, overrides = {}) =>
+    runIngest({
+      db: handle.db,
+      client: new MediaWikiClient({ contact: 'test@example.com', fetchImpl, sleep: async () => {} }),
+      embedFn: fakeEmbedMany,
+      runId: `run-${Math.random().toString(36).slice(2)}`,
+      ...overrides,
+    });
+
+  const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+
+  /** Every page's stored recipes: by which extractor, from which revision, and when they last changed. */
+  const recipeRows = async () =>
+    (
+      await rawQuery<{ title: string; recipes_version: number; revid: number; updated_at: string }>(
+        handle.db,
+        sql`SELECT p.title, r.recipes_version, r.revid, r.updated_at::text AS updated_at
+            FROM page_recipes r JOIN pages p ON p.key = r.page_key ORDER BY p.title`,
+      )
+    ).map((r) => ({ ...r, recipes_version: Number(r.recipes_version), revid: Number(r.revid) }));
+
+  const count = async (table: 'recipe_graph' | 'articles' | 'chunks') =>
+    Number((await rawQuery<{ n: string }>(handle.db, sql`SELECT count(*)::text AS n FROM ${sql.raw(table)}`))[0]!.n);
+
+  /** The graph readers are served. */
+  const served = async (): Promise<RecipeGraph | null> => (await getLatestRecipeGraph(handle.db))?.graph ?? null;
+
+  /** The steps of an item the maths plans with, in quality order. */
+  const steps = (graph: RecipeGraph, id: string) => graph.recipes.filter((r) => r.product === id && !r.alt);
+
+  /** The Iron Sword's first step taking 5 Wood instead of 2: an edit to its recipe upstream. */
+  const moreWood = (html: string) =>
+    html.replace('<a href="/wiki/Wood" title="Wood">Wood</a> x2', '<a href="/wiki/Wood" title="Wood">Wood</a> x5');
+
+  /** What the run said it read recipes for, and why. */
+  const recipePlans = (events: ProgressEvent[]) =>
+    events.flatMap((e) => (e.type === 'recipes-planned' ? [e.reasons] : []));
+
+  it("stores every page's recipes from the fetch that builds its article, and assembles one graph", async () => {
+    const wiki = fakeWiki(PAGES);
+    const result = await ingest(wiki.fetchImpl);
+
+    // One request per page: the recipes come from the same HTML as the article.
+    expect(wiki.state.parseCalls).toBe(3);
+    expect(result.recipesExtracted).toBe(3);
+    expect((await recipeRows()).map((r) => [r.title, r.recipes_version, r.revid])).toEqual([
+      ['Bonemass', RECIPES_VERSION, 200],
+      ['Iron', RECIPES_VERSION, 300],
+      ['Iron Sword', RECIPES_VERSION, 100],
+    ]);
+
+    expect(await count('recipe_graph')).toBe(1);
+    const graph = (await served())!;
+    expect(result.graph?.version).toBe(graph.version);
+    expect(result.graph?.report).toMatchObject({ items: graph.items.length, recipes: graph.recipes.length });
+    expect(steps(graph, 'SwordIron').map((r) => [r.quality, r.stationLevel, r.inputs.map(([, qty]) => qty)])).toEqual([
+      [1, 2, [2, 20, 3]],
+      [2, 3, [1, 10, 2]],
+      [3, 4, [2, 20, 4]],
+      [4, 5, [3, 30, 6]],
+    ]);
+    expect(await isRecipeGraphBehind(handle.db)).toBe(false);
+  });
+
+  it('reads no recipes and assembles no graph when nothing changed', async () => {
+    const wiki = fakeWiki(PAGES);
+    await ingest(wiki.fetchImpl);
+    const recipes = await recipeRows();
+    const asked = wiki.state.redirectCalls;
+
+    const second = await ingest(wiki.fetchImpl);
+
+    expect(second.recipesExtracted).toBe(0);
+    expect(second.graph).toBeNull();
+    expect(wiki.state.parseCalls).toBe(3);
+    expect(wiki.state.redirectCalls).toBe(asked);
+    expect(await recipeRows()).toEqual(recipes);
+    expect(await count('recipe_graph')).toBe(1);
+  });
+
+  it("reads every page's recipes again for a new extractor, and leaves the articles and their translations alone", async () => {
+    const wiki = fakeWiki(PAGES);
+    await ingest(wiki.fetchImpl, { recipesVersion: 1 });
+    const iron = (await getArticleBySlug(handle.db, 'iron'))!;
+    await saveTranslation(handle.db, {
+      pageKey: iron.pageKey,
+      lang: 'es',
+      title: 'Hierro (Iron)',
+      doc: iron.doc,
+      model: 'test-model',
+      sourceUpdatedAt: iron.updatedAt,
+    });
+
+    const events: ProgressEvent[] = [];
+    const second = await ingest(wiki.fetchImpl, { recipesVersion: 2, onProgress: (e: ProgressEvent) => events.push(e) });
+
+    expect(second.pagesChanged).toBe(0);
+    expect(second.articlesChanged).toBe(0);
+    expect(second.recipesExtracted).toBe(3);
+    expect(wiki.state.parseCalls).toBe(6);
+    expect(recipePlans(events)).toEqual([{ missing: 0, extractor: 3, revised: 0, forced: 0 }]);
+    expect((await recipeRows()).map((r) => r.recipes_version)).toEqual([2, 2, 2]);
+    expect((await getArticleBySlug(handle.db, 'iron'))!.updatedAt.getTime()).toBe(iron.updatedAt.getTime());
+    expect((await getTranslation(handle.db, iron.pageKey, 'es'))!.stale).toBe(false);
+    // The same recipes make the same graph, stored again as the newest.
+    expect(second.graph?.version).toBe((await served())!.version);
+    expect(await count('recipe_graph')).toBe(1);
+  });
+
+  it('reads recipes only: a fresh index gets its recipes and a graph, and no article, chunk or vector', async () => {
+    const wiki = fakeWiki(PAGES);
+    const embed = vi.fn(fakeEmbedMany);
+    const events: ProgressEvent[] = [];
+    const result = await ingest(wiki.fetchImpl, {
+      recipesOnly: true,
+      embedFn: embed,
+      onProgress: (e: ProgressEvent) => events.push(e),
+    });
+
+    expect(result.recipesExtracted).toBe(3);
+    expect(result.pagesChanged).toBe(0);
+    expect(result.graph?.version).toBe((await served())!.version);
+    expect(recipePlans(events)).toEqual([{ missing: 3, extractor: 0, revised: 0, forced: 0 }]);
+    expect(embed).not.toHaveBeenCalled();
+    expect(await getSetting(handle.db, EMBEDDING_PROVIDER_KEY)).toBeNull();
+    expect(await count('articles')).toBe(0);
+    expect(await count('chunks')).toBe(0);
+    // Each page is stored unfinished, so the next ordinary run derives its article.
+    const revids = await rawQuery<{ revid: number }>(handle.db, sql`SELECT revid FROM pages`);
+    expect(revids.map((r) => Number(r.revid))).toEqual([UNFINISHED, UNFINISHED, UNFINISHED]);
+
+    const plans: ProgressEvent[] = [];
+    const next = await ingest(wiki.fetchImpl, { onProgress: (e: ProgressEvent) => e.type === 'planned' && plans.push(e) });
+    expect(plans[0]?.type === 'planned' && plans[0].reasons.added).toBe(3);
+    expect(next.pagesChanged).toBe(3);
+    expect(await getArticleBySlug(handle.db, 'iron-sword')).not.toBeNull();
+    expect(next.graph?.version).toBe(result.graph?.version);
+  });
+
+  it('reads recipes only on a stored index: the revised recipe reaches the graph, and its article waits for an ordinary run', async () => {
+    const wiki = fakeWiki(PAGES);
+    await ingest(wiki.fetchImpl);
+    const article = (await getArticleBySlug(handle.db, 'iron-sword'))!;
+    const parses = wiki.state.parseCalls;
+
+    wiki.state.pages[0]!.revid = 101;
+    wiki.state.pages[0]!.edit = moreWood;
+    const events: ProgressEvent[] = [];
+    const result = await ingest(wiki.fetchImpl, { recipesOnly: true, onProgress: (e: ProgressEvent) => events.push(e) });
+
+    expect(wiki.state.parseCalls).toBe(parses + 1);
+    expect(recipePlans(events)).toEqual([{ missing: 0, extractor: 0, revised: 1, forced: 0 }]);
+    expect(result.recipesExtracted).toBe(1);
+    expect(steps((await served())!, 'SwordIron')[0]!.inputs[0]![1]).toBe(5);
+    expect((await getArticleBySlug(handle.db, 'iron-sword'))!.updatedAt.getTime()).toBe(article.updatedAt.getTime());
+
+    const next = await ingest(wiki.fetchImpl);
+    expect(next.pagesChanged).toBe(1);
+    expect(next.articlesChanged).toBe(1);
+  });
+
+  it('assembles the graph again on every recipes-only run, so an edit to the overrides reaches it', async () => {
+    const wiki = fakeWiki(PAGES);
+    const first = await ingest(wiki.fetchImpl);
+
+    const again = await ingest(wiki.fetchImpl, { recipesOnly: true });
+
+    expect(again.recipesExtracted).toBe(0);
+    expect(wiki.state.parseCalls).toBe(3);
+    expect(again.graph?.version).toBe(first.graph?.version);
+
+    // And with `full`, every page's recipes are read again first.
+    const events: ProgressEvent[] = [];
+    const forced = await ingest(wiki.fetchImpl, { recipesOnly: true, full: true, onProgress: (e: ProgressEvent) => events.push(e) });
+    expect(recipePlans(events)).toEqual([{ missing: 0, extractor: 0, revised: 0, forced: 3 }]);
+    expect(forced.recipesExtracted).toBe(3);
+    expect(forced.pagesChanged).toBe(0);
+  });
+
+  it('refuses a recipes-only run asked to rebuild articles or vectors, before writing anything', async () => {
+    const wiki = fakeWiki(PAGES);
+    for (const asked of [{ reparse: true }, { reembed: true }, { switchProvider: 'injected' }]) {
+      await expect(ingest(wiki.fetchImpl, { recipesOnly: true, ...asked })).rejects.toBeInstanceOf(IngestConfigError);
+    }
+    expect(wiki.state.parseCalls).toBe(0);
+    expect(await rawQuery(handle.db, sql`SELECT 1 FROM ingest_runs`)).toHaveLength(0);
+  });
+
+  it('records a failed assembly and still ends an otherwise good run ok; the next run assembles it', async () => {
+    const wiki = fakeWiki(PAGES);
+    const readOnly: FetchLike = async (url, init) =>
+      new URL(url).searchParams.get('redirects') === '1'
+        ? json({ error: { code: 'readonly', info: 'The wiki is currently in read-only mode.' } })
+        : wiki.fetchImpl(url, init);
+
+    const broken = await ingest(readOnly, { runId: 'run-broken-graph' });
+
+    expect(broken.graph).toBeNull();
+    expect(broken.errors).toEqual([{ title: '(recipe graph)', message: expect.stringContaining('read-only') }]);
+    const [run] = await rawQuery<{ status: string }>(handle.db, sql`SELECT status FROM ingest_runs WHERE id = 'run-broken-graph'`);
+    expect(run?.status).toBe('ok');
+    expect(await count('recipe_graph')).toBe(0);
+    expect(await getArticleBySlug(handle.db, 'iron-sword')).not.toBeNull();
+
+    // Nothing new on the wiki, but the graph is still behind its recipes.
+    const next = await ingest(wiki.fetchImpl);
+    expect(next.recipesExtracted).toBe(0);
+    expect(next.graph).not.toBeNull();
+    expect(await count('recipe_graph')).toBe(1);
+  });
+
+  it("never assembles a graph without a listed page's recipes", async () => {
+    // A graph missing a page would offer a breakdown that stops at an item it
+    // could have made, as if the item were found rather than made.
+    const wiki = fakeWiki(PAGES);
+    const flaky: FetchLike = async (url, init) => {
+      const params = new URL(url).searchParams;
+      if (params.get('action') === 'parse' && params.get('pageid') === '2') return new Response('boom', { status: 500 });
+      return wiki.fetchImpl(url, init);
+    };
+    const events: ProgressEvent[] = [];
+    const first = await ingest(flaky, { onProgress: (e: ProgressEvent) => events.push(e) });
+
+    expect(first.errors.map((e) => e.title)).toEqual(['Bonemass']);
+    expect(first.graph).toBeNull();
+    expect(events).toContainEqual({ type: 'graph-skipped', reason: expect.stringMatching(/Bonemass.*the next run reads them/) });
+    expect(await count('recipe_graph')).toBe(0);
+
+    const next = await ingest(wiki.fetchImpl);
+    expect(next.recipesExtracted).toBe(1);
+    expect(next.graph).not.toBeNull();
+  });
+
+  it('reads no more pages than the limit, recipes included, and assembles no graph from part of the wiki', async () => {
+    const wiki = fakeWiki(PAGES);
+    const events: ProgressEvent[] = [];
+    const limited = await ingest(wiki.fetchImpl, { limit: 1, onProgress: (e: ProgressEvent) => events.push(e) });
+    expect(wiki.state.parseCalls).toBe(1);
+    expect(limited.graph).toBeNull();
+    // Another run with a limit would read no more of them than this one did.
+    expect(events).toContainEqual({ type: 'graph-skipped', reason: expect.stringContaining('a run without a limit reads them') });
+
+    await ingest(wiki.fetchImpl, { recipesOnly: true, limit: 1 });
+    expect(wiki.state.parseCalls).toBe(2);
+    expect(await count('recipe_graph')).toBe(0);
+  });
+
+  it('keeps the graph readers have when a run stops partway, and the next run assembles the whole wiki', async () => {
+    const wiki = fakeWiki(PAGES);
+    await ingest(wiki.fetchImpl);
+    const before = (await served())!;
+
+    // Every page revised, the Iron Sword's recipe among them; the network
+    // goes down after the first page, before the graph is assembled.
+    for (const page of wiki.state.pages) page.revid += 1;
+    wiki.state.pages[0]!.edit = moreWood;
+    let parses = 0;
+    const down: FetchLike = async (url, init) => {
+      const params = new URL(url).searchParams;
+      if ((params.get('action') === 'parse' && ++parses > 1) || params.get('redirects') === '1') {
+        throw new TypeError('fetch failed');
+      }
+      return wiki.fetchImpl(url, init);
+    };
+    const stopped = await ingest(down, { concurrency: 1 });
+
+    expect(stopped.errors.map((e) => e.title)).toEqual(['Bonemass', 'Iron', '(recipe graph)']);
+    expect((await served())!.version).toBe(before.version);
+    expect(await isRecipeGraphBehind(handle.db)).toBe(true);
+
+    const next = await ingest(wiki.fetchImpl);
+    expect(next.errors).toEqual([]);
+    const after = (await served())!;
+    expect(after.version).toBe(next.graph?.version);
+    expect(steps(after, 'SwordIron')[0]!.inputs[0]![1]).toBe(5);
+    expect(await isRecipeGraphBehind(handle.db)).toBe(false);
+
+    // The very graph an uninterrupted ingest of the same wiki assembles.
+    const clean = await createTestDb();
+    try {
+      const fresh = await runIngest({
+        db: clean.db,
+        client: new MediaWikiClient({ contact: 'test@example.com', fetchImpl: wiki.fetchImpl, sleep: async () => {} }),
+        embedFn: fakeEmbedMany,
+      });
+      expect(fresh.graph?.version).toBe(after.version);
+    } finally {
+      await clean.close();
+    }
+  });
+});
+
+describe('recipeStaleness', () => {
+  const state = { recipesVersion: 2, revid: 10 };
+
+  it("reads a page's recipes again when they are missing, read by another extractor or from another revision", () => {
+    expect(recipeStaleness(undefined, 10, { recipesVersion: 2, full: false })).toBe('missing');
+    expect(recipeStaleness({ ...state, recipesVersion: 1 }, 10, { recipesVersion: 2, full: false })).toBe('extractor');
+    // A rollback reads them again too: the running extractor is the one that must have read them.
+    expect(recipeStaleness({ ...state, recipesVersion: 3 }, 10, { recipesVersion: 2, full: false })).toBe('extractor');
+    expect(recipeStaleness(state, 11, { recipesVersion: 2, full: false })).toBe('revised');
+    expect(recipeStaleness(state, undefined, { recipesVersion: 2, full: false })).toBe('revised');
+    expect(recipeStaleness(state, 10, { recipesVersion: 2, full: true })).toBe('forced');
+  });
+
+  it('leaves recipes alone that the running extractor read from the live revision', () => {
+    expect(recipeStaleness(state, 10, { recipesVersion: 2, full: false })).toBeNull();
   });
 });
 

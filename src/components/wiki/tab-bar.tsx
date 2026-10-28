@@ -115,7 +115,14 @@ export function TabBar({ lang, signedIn }: { lang: Lang; signedIn: boolean }) {
                     {count > 0 ? <TabCount count={count} className="absolute -top-1.5 left-full ml-0.5" /> : null}
                   </span>
                   <span className="flex max-w-full items-center gap-1">
-                    <span className="truncate">{tab.label}</span>
+                    {/*
+                     * `truncate` clips at the label's padding box, and the
+                     * link's `leading-none` makes its line box the font size,
+                     * which the foot of a p hangs below ("Explorar" lost a
+                     * sliver of it at 14px). The padding gives descenders
+                     * room; the same negative margin keeps the label in place.
+                     */}
+                    <span className="-my-0.5 truncate py-0.5">{tab.label}</span>
                     {locked ? <LockGlyph /> : null}
                     {count > 0 ? <TabCount count={count} className="max-sm:hidden" /> : null}
                   </span>
@@ -139,17 +146,25 @@ export function TabBar({ lang, signedIn }: { lang: Lang; signedIn: boolean }) {
         </ul>
 
         {/*
-         * The search takes whatever the tabs leave, up to 16rem, from 768px.
-         * Between 640 and 767px five tabs beside the brand leave it too
-         * little to type in, and the Search tab is one tap away.
+         * The search takes whatever the tabs leave, up to 16rem. Four tabs
+         * beside the brand leave it about 130px at 640px. Five, once the
+         * planner's tab ships, would leave it about 65px there, too little to
+         * type in: then it waits for 768px, and the Search tab is one tap
+         * away. Until then that room is the search's. The cap has no
+         * breakpoint of its own, so it holds from whichever width the field
+         * appears at.
          */}
         <div className="flex shrink-0 items-center gap-3 sm:min-w-0 sm:flex-1 sm:justify-end">
           {here?.key === 'search' ? null : (
-            <NavSearch lang={lang} className="hidden min-w-0 flex-1 md:block md:max-w-64" />
+            <NavSearch
+              lang={lang}
+              className={`hidden max-w-64 min-w-0 flex-1 ${CRAFT_PLANNER_LIVE ? 'md:block' : 'sm:block'}`}
+            />
           )}
           {/*
            * Not a tab: it switches the language of everything, it is not
-           * somewhere to go. One button on a phone, so five tabs fit beside it.
+           * somewhere to go. One button on a phone, so the tabs fit beside
+           * it at 360px, five of them once the planner ships.
            */}
           <LangToggle lang={lang} compact />
         </div>

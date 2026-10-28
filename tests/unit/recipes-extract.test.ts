@@ -404,6 +404,89 @@ describe('extractRecipes: list pages', () => {
   });
 });
 
+describe("extractRecipes: an item's table of upgrades", () => {
+  /** `[quality, station level, ['Wood:2', …]]` for each level of a table. */
+  const rows = (table: PageRecipes['upgradeTable']) =>
+    table!.levels.map((l) => [l.quality, l.stationLevel, l.entries.map((e) => `${e.link?.title ?? e.text}:${e.qty}`)]);
+
+  it('reads the table beside the infobox, a quality the infobox leaves out included', async () => {
+    // The Staff of Protection's infobox stops at quality 3; its "Upgrade
+    // information" table goes on to a fourth, at Galdr table level 4.
+    const page = await recipes('recipes/Staff_of_Protection');
+    expect(page.infoboxes[0]!.levels.map((l) => l.quality)).toEqual([1, 2, 3]);
+    expect(page.upgradeTable).toMatchObject({ anchor: 'Upgrade information', station: 'Galdr table', notes: [] });
+    expect(rows(page.upgradeTable)).toEqual([
+      [1, 1, ['Yggdrasil wood:20', 'Blood clot:4', 'Refined eitr:16']],
+      [2, 2, ['Yggdrasil wood:10', 'Blood clot:2', 'Refined eitr:8']],
+      [3, 3, ['Yggdrasil wood:20', 'Blood clot:4', 'Refined eitr:16']],
+      [4, 4, ['Yggdrasil wood:40', 'Blood clot:8', 'Refined eitr:32']],
+    ]);
+  });
+
+  it('reads the table as the wiki wrote it where it disagrees with the infobox, and no total as a quality', async () => {
+    // The Wood Tower Shield's infobox says 4 Leather scraps for the first
+    // quality, its table 6; the graph's report is where the two meet.
+    const shield = await recipes('recipes/Wood_Tower_Shield');
+    expect(named(shield.infoboxes[0]!)[0]).toEqual(['Wood:10', 'Leather scraps:4']);
+    expect(shield.upgradeTable!.station).toBe('Workbench');
+    expect(rows(shield.upgradeTable)).toEqual([
+      [1, 1, ['Wood:10', 'Leather scraps:6']],
+      [2, 2, ['Wood:5', 'Leather scraps:3']],
+      [3, 3, ['Wood:10', 'Leather scraps:6']],
+    ]);
+    // The Pointy Hat's table ends in a "Total" column, which sums the others.
+    const hat = await recipes('recipes/Pointy_Hat');
+    expect(rows(hat.upgradeTable).map(([quality]) => quality)).toEqual([1, 2, 3, 4]);
+    expect(rows(hat.upgradeTable)[0]).toEqual([1, 1, ['Deer hide:3', 'Coal:5', 'Bronze:1']]);
+  });
+
+  it("reads a station's level by its number where the wiki marks it not yet available, and no other row as one", () => {
+    const table =
+      '<h2><span class="mw-headline" id="Upgrade_information">Upgrade information</span></h2>' +
+      '<table class="article-table"><tbody>' +
+      '<tr><th colspan="2">Quality</th><th>1</th><th>2</th></tr>' +
+      '<tr><th rowspan="2">Absorbed</th><th>Blood Magic 0</th><td>200</td><td>200</td></tr>' +
+      '<tr><th>Per Level</th><td>5</td><td>5</td></tr>' +
+      '<tr><th colspan="2">Crafting</th><td>20 <a href="/wiki/Flametal">Flametal</a></td><td>10 <a href="/wiki/Flametal">Flametal</a></td></tr>' +
+      '<tr><th colspan="2">Black forge level</th><td>6 (not yet available)</td><td>7 (not yet available)</td></tr>' +
+      '</tbody></table>';
+    const page = extractRecipes(box('<a href="/wiki/Flametal">Flametal</a> x20', 'Slayer') + table, { title: 'Slayer' });
+    expect(page.upgradeTable).toMatchObject({ anchor: 'Upgrade information', station: 'Black forge', notes: [] });
+    expect(rows(page.upgradeTable)).toEqual([
+      [1, 6, ['Flametal:20']],
+      [2, 7, ['Flametal:10']],
+    ]);
+  });
+
+  it('reads no table of upgrades on a page with no infobox of its own, or with none at all', async () => {
+    // An armor set's pieces are each a tab: whose table it would be is anybody's guess.
+    expect((await recipes('recipes/Troll_Set')).upgradeTable).toBeNull();
+    expect(extractRecipes('<p>No infobox here.</p>', null).upgradeTable).toBeNull();
+  });
+
+  it('reads several linked materials on one line, each with its count', async () => {
+    // The Fishing Hat's table runs eleven of its twelve fish into one line:
+    // "Pike x1 Tuna x1 … Northern salmon x1", each fish its own link.
+    const hat = await recipes('recipes/Fishing_Hat');
+    expect(hat.upgradeTable!.notes).toEqual([]);
+    expect(hat.upgradeTable!.levels.map((l) => l.entries.length)).toEqual([12, 12, 12, 12]);
+    expect(rows(hat.upgradeTable)[3]![2]).toContain('Northern salmon:4');
+    // A count before each material, as the Mistwalker's table writes its fourth quality.
+    const entries = (cell: string) => extractRecipes(box(cell), null).infoboxes[0]!.levels[0]?.entries ?? [];
+    expect(entries('40 <a href="/wiki/Iron">Iron</a><p>20 <a href="/wiki/Refined_Eitr">Refined eitr</a> 4 <a href="/wiki/Wisp">Wisp</a></p>').map((e) => [e.link?.title, e.qty])).toEqual([
+      ['Iron', 40],
+      ['Refined Eitr', 20],
+      ['Wisp', 4],
+    ]);
+    // A line its links do not cut into materials is still a note: two
+    // amounts for one material, or a material inside a remark.
+    expect(extractRecipes(box('5 <a href="/wiki/Bronze">Bronze</a> (or 10 <a href="/wiki/Copper">Copper</a>)'), null).infoboxes[0]).toMatchObject({
+      levels: [],
+      notes: ['5 Bronze (or 10 Copper)'],
+    });
+  });
+});
+
 describe('extractRecipes: what it cannot read', () => {
   it('keeps unreadable cells as notes and never throws', async () => {
     const page = await saved('recipes/Yuleklapp');
@@ -443,7 +526,12 @@ describe('extractRecipes: what it cannot read', () => {
       levels: [{ entries: [{ text: 'Wood', qty: 2 }] }],
       notes: ['(Requires Stonecutter)'],
     });
-    expect(extractRecipes('<p>No infobox here.</p>', null)).toEqual({ infoboxes: [], listRows: [], foodRows: [] });
+    expect(extractRecipes('<p>No infobox here.</p>', null)).toEqual({
+      infoboxes: [],
+      listRows: [],
+      foodRows: [],
+      upgradeTable: null,
+    });
   });
 
   it('gives no recipe at all rather than part of one', () => {

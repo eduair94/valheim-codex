@@ -86,11 +86,14 @@ export const OPENROUTER_REWRITE_MODEL = process.env.OPENROUTER_REWRITE_MODEL ?? 
  * company that serves open-weight models on its own inference chips.
  *
  * Measured on a free account: 200,000 tokens per day for this model, which at
- * roughly 3–4k tokens a question is fifty-odd questions. That is a different
- * shape of limit from Gemini's twenty requests a minute rather than a bigger
- * one — Gemini refuses in bursts and recovers within the minute, Groq is
- * steady until the day's budget is gone. Having both means the bursty limit
- * and the daily one rarely bite at the same moment.
+ * roughly 3–4k tokens a question is fifty-odd questions, and 8,000 a minute,
+ * drained continuously: "Used 7742, Requested 1963" was told to try again in
+ * 12.7875 s, the time the excess takes to drain at 8,000 a minute. The bulk
+ * translation script spends from the same two, and keeps to half of the
+ * minute by default (scripts/translate-cli.ts). That is a different shape of
+ * limit from Gemini's, which on this project's key is twenty requests a day,
+ * as its refusals of 2026-10-28 say: Gemini is gone after the day's first few
+ * questions, Groq is steady until its tokens are.
  *
  * `gpt-oss-120b` because it was the one that worked: measured on this
  * project's prompt it answered in Spanish, cited correctly and honoured a
@@ -158,8 +161,37 @@ export const REWRITE_ATTEMPT_TIMEOUT_MS = envMs('CHAT_REWRITE_TIMEOUT_MS', 6_000
 export const REWRITE_TOTAL_TIMEOUT_MS = envMs('CHAT_REWRITE_TOTAL_TIMEOUT_MS', 10_000);
 
 /**
- * Output ceiling for one answer. Grounded answers run a few hundred tokens;
- * this only bounds a runaway generation. Room is left for the reasoning
- * tokens gpt-oss spends before it writes, which count against the same limit.
+ * The longest wait a rate limit may state for the chat to sit it out on the
+ * same provider, rewrite and answer alike, instead of moving on to the next.
+ * Each provider's deadline above bounds it further: a wait is only worth it
+ * when the provider still has time to answer afterwards (see fallback.ts), so
+ * the chat's first word is no later for it.
  */
+export const RATE_LIMIT_WAIT_MS = 20_000;
+
+/*
+ * Output ceilings.
+ *
+ * Every call on the operator's chain carries one, and not only to bound a
+ * runaway generation: a request that sets none is priced at the model's own
+ * maximum. OpenRouter reserves that much credit before it answers, and
+ * refused every rewrite and translation batch with 402 — "You requested up to
+ * 65536 tokens, but can only afford 15993" — on a key with credit to spare for
+ * any real reply. `provider.ts` puts the ceiling on the models themselves, so
+ * no call can leave it out; a call that knows its reply better sets its own
+ * (the translator sizes one per batch).
+ *
+ * Room is left in each for the reasoning tokens gpt-oss spends before it
+ * writes, which count against the same limit.
+ */
+
+/** One answer. Grounded answers run a few hundred tokens. */
 export const MAX_ANSWER_TOKENS = 4096;
+
+/**
+ * One query rewrite. The reply is at most three short queries, a few dozen
+ * tokens; the rest is for gpt-oss's reasoning. Measured above, it honoured a
+ * strict JSON schema in about 900 ms: a few hundred tokens, reasoning
+ * included, at the rate Groq writes them.
+ */
+export const MAX_REWRITE_TOKENS = 1024;

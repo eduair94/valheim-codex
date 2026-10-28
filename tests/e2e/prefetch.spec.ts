@@ -1,4 +1,4 @@
-import { expect, test, type CDPSession, type Locator, type Page, type Response } from '@playwright/test';
+import { expect, test, type CDPSession, type Locator, type Page, type Request } from '@playwright/test';
 import { refuseTranslations, waitForHydration } from './helpers';
 
 /**
@@ -58,10 +58,26 @@ function kindOf(headers: Record<string, string>): Kind {
 const fullFor = (seen: Seen[], page: string, since = 0): Seen[] =>
   seen.filter((s) => s.page === page && s.kind === 'full' && s.at >= since);
 
-const isFullRsc = (response: Response, page: string): boolean => {
-  const headers = response.request().headers();
-  return headers['rsc'] === '1' && kindOf(headers) === 'full' && pageOf(response.url()) === page;
-};
+/**
+ * Resolves once the full prefetch of `page` has settled: its request
+ * finished, or failed. Listening from before the pointer moves, so a request
+ * that settles at once is not missed. Not `response.finished()`: on these
+ * streamed responses it never resolved, though the request finished within
+ * a fraction of a second, and each test waited out its whole timeout.
+ */
+function fullSettled(on: Page, page: string): Promise<void> {
+  return new Promise((resolve) => {
+    const settle = (request: Request): void => {
+      const headers = request.headers();
+      if (headers['rsc'] !== '1' || kindOf(headers) !== 'full' || pageOf(request.url()) !== page) return;
+      on.off('requestfinished', settle);
+      on.off('requestfailed', settle);
+      resolve();
+    };
+    on.on('requestfinished', settle);
+    on.on('requestfailed', settle);
+  });
+}
 
 /** Opens a reader page and waits until the wrapper listens; skips against `next dev`. */
 async function openReader(page: Page, path: string, wrapper: string): Promise<void> {
@@ -105,9 +121,9 @@ test.describe('with a pointer', () => {
     const row = page.locator(ROWS).nth(3);
     const href = await hrefOf(row);
 
-    const prefetched = page.waitForResponse((response) => isFullRsc(response, href));
+    const prefetched = fullSettled(page, href);
     await row.hover();
-    await (await prefetched).finished();
+    await prefetched;
     expect(fullFor(seen, href), 'one full prefetch for the row').toHaveLength(1);
     expect(seen.filter((s) => s.page === href && s.kind === 'tree').length).toBeLessThanOrEqual(1);
 
@@ -360,9 +376,9 @@ test.describe('with the service worker in control', () => {
 
     const row = page.locator(ROWS).nth(11);
     const href = await hrefOf(row);
-    const prefetched = page.waitForResponse((response) => isFullRsc(response, href));
+    const prefetched = fullSettled(page, href);
     await row.hover();
-    await (await prefetched).finished();
+    await prefetched;
     await page.waitForTimeout(3_000);
     expect(
       fromWorker.filter((request) => request.page === href && request.html),

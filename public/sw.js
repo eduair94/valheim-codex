@@ -61,7 +61,8 @@
  *     used. The URLs the search page and the planner ask for are also saved
  *     at install, so a reader who only ever opened articles still has a
  *     search to find them with offline, and the planner has its recipes
- *     offline from its first visit.
+ *     offline from its first visit. The graph is saved at install only once
+ *     the planner has shipped (`PLANNER_LIVE`).
  *
  *   - Fandom images: cache first, by URL (a new revision changes its `?cb=`).
  *     The page's own image elements request no-cors, and opaque responses
@@ -154,10 +155,19 @@ const RECIPE_GRAPH = '/api/wiki/recipes?v=1';
 const PLANNER_PAGE = '/wiki/craft';
 const SHARE_PARAM = 'l';
 
+/**
+ * Whether the planner has shipped: `CRAFT_PLANNER_LIVE` in
+ * src/lib/craft/feature.ts, which this file cannot import
+ * (tests/unit/sw-routing.test.ts fails when the two differ). Until it has,
+ * the recipe graph is not saved at install: every reader's worker would
+ * download the whole graph for a page no link leads to.
+ */
+const PLANNER_LIVE = false;
+
 const SHELL_ASSETS = [
   FALLBACK_PAGE,
   TITLE_INDEX,
-  RECIPE_GRAPH,
+  ...(PLANNER_LIVE ? [RECIPE_GRAPH] : []),
   '/manifest.webmanifest',
   '/icon.svg',
   '/icon-192.png',

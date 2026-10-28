@@ -260,7 +260,7 @@
     Not clipped to round its corners, so nothing in a card can ever be cut
     off: the cells at either end are rounded instead, as the stat list's rows
     are (LM-01). The title is the cell with a fill of its own, against the
-    top edge, and against the bottom one too when it is the card's only cell.
+    top edge, and against the bottom one too when nothing shows under it.
   */
   .stack-table tr {
     margin-bottom: 0.75rem;
@@ -293,6 +293,18 @@
   /* A row with no heading has no title bar, rather than an empty one. */
   .stack-table tbody th:empty {
     display: none;
+  }
+  /*
+    A title with nothing under it is the card's bottom edge too: a row whose
+    other cells are all empty, and so hidden, as the wiki writes a heading
+    inside a table ("One-handed" on Weapons). `:last-child` alone missed it,
+    since the empty cells are still there, and the title's square fill stuck
+    out of the card's corners under a doubled bottom rule.
+  */
+  .stack-table tbody th:not(:has(~ :not(:empty))) {
+    border-bottom: 0;
+    border-bottom-left-radius: calc(6px - 1px);
+    border-bottom-right-radius: calc(6px - 1px);
   }
 
   /*

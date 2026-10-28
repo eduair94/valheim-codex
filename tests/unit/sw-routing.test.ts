@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import { CRAFT_PLANNER_LIVE } from '@/lib/craft/feature';
 
 /**
  * The service worker, run for real in a sandbox: its routing decisions, and
@@ -545,13 +546,20 @@ describe('service worker install and activation', () => {
     expect(fetched).not.toContain('/api/wiki/index');
   });
 
-  it('saves the recipe graph the planner reads', async () => {
+  /*
+   * Not while the planner is hidden: every reader's new worker would download
+   * the whole graph for a page no link leads to. The worker cannot import
+   * `CRAFT_PLANNER_LIVE`, so it keeps its own `PLANNER_LIVE`, and opening the
+   * gate fails here until the worker saves the graph again.
+   */
+  it('saves the recipe graph the planner reads, once the planner is live', async () => {
     expect(GRAPH_URL, 'GRAPH_URL in src/lib/craft/graph-client.ts').toMatch(/^\/api\/wiki\/recipes\?/);
     const worker = loadWorker({ fetch: siteNetwork() });
     await worker.lifecycle('install');
-    expect(worker.caches.has(SHELL, GRAPH_URL ?? '')).toBe(true);
+    const live = 'PLANNER_LIVE in public/sw.js follows CRAFT_PLANNER_LIVE in src/lib/craft/feature.ts';
+    expect(worker.caches.has(SHELL, GRAPH_URL ?? ''), live).toBe(CRAFT_PLANNER_LIVE);
     const fetched = worker.requests.map((r) => new URL(r.url).pathname + new URL(r.url).search);
-    expect(fetched).toContain(GRAPH_URL);
+    expect(fetched.includes(GRAPH_URL ?? ''), live).toBe(CRAFT_PLANNER_LIVE);
   });
 
   it('saves the search page with the files it needs to render, and the install files', async () => {

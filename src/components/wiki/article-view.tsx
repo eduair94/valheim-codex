@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { CraftView } from '@/lib/craft/data';
 import type { ArticlePage } from '@/lib/wiki/data';
 import { buildLinker } from '@/lib/wiki/links';
 import { isMaintenanceCategory } from '@/lib/wiki/browse-groups';
@@ -19,6 +20,10 @@ import { Infobox, hasInfoboxContent } from './article/infobox';
 import { articleLayout } from './article/infobox-model';
 import { IntentPrefetch } from './article/intent-prefetch';
 import { translateMode } from './article/translate-request';
+import type { CraftCardData } from './craft/card-model';
+import { ObtainWays } from './craft/obtain';
+import { StationPath } from './craft/station-path';
+import { UsedIn } from './craft/used-in';
 
 /**
  * The article page.
@@ -36,20 +41,33 @@ import { translateMode } from './article/translate-request';
  * lead, the stats, the body.
  *
  * Rendered on the server. What runs in the browser is small and specific: the
- * level switcher, the gallery's viewer, the floating "ask" button, the
- * translation request, the sticky infobox and the tables' scroll boxes.
+ * level switcher, the craft card, the gallery's viewer, the floating "ask"
+ * button, the translation request, the sticky infobox and the tables' scroll
+ * boxes.
+ *
+ * Where the recipe graph knows the item (`craft`), the infobox's recipe rows
+ * become the craft card, and the text opens with what the graph says about
+ * the item that the wiki spreads over other pages: how a raw material is
+ * had, everything a material goes into, a station's upgrades. Where it does
+ * not, the page is exactly what it was.
  */
 export function ArticleView({
   page,
   lang,
   ask,
   canTranslate,
+  craft = null,
+  stationFacet = null,
 }: {
   page: ArticlePage;
   lang: Lang;
   ask: AskTarget;
   /** This reader may ask for a translation (their allowance is not switched off). */
   canTranslate: boolean;
+  /** The item's slice of the recipe graph, in the reader's language; null where the graph does not know it. */
+  craft?: CraftView | null;
+  /** For a station: the station as the category lists filter by it, where any article names it. */
+  stationFacet?: string | null;
 }) {
   const t = strings(lang);
   const { article, translation, doc } = page;
@@ -105,13 +123,20 @@ export function ArticleView({
         ],
   );
 
+  // The card shows where the graph has a recipe to show: a raw material's
+  // slice has none, and keeps the infobox as it is. The island takes the
+  // item and the closure only; the rest of the view stays on the server.
+  const card: CraftCardData | null = craft && craft.recipes.length > 0 ? { item: craft.item, closure: craft.closure } : null;
+  const craftInputs = craft && card ? Math.max(...craft.recipes.map((recipe) => recipe.inputs.length)) : undefined;
+
   // From 1024px: the stats beside the text, or spread above it (`articleLayout`).
-  const layout = articleLayout(doc, infobox);
+  const layout = articleLayout(doc, infobox, craftInputs);
   const side = layout === 'side';
   const docked: Docked = layout === 'side' ? 'sticky' : layout === 'spread' ? 'always' : 'never';
 
   return (
     <IntentPrefetch lang={contentLang} className="pb-4">
+      <LevelTargets levels={craft?.item.maxQuality ?? 1} />
       <ArticleHeader
         name={name}
         nameLang={nameLang}
@@ -141,6 +166,7 @@ export function ArticleView({
             recipeSources={page.recipeSources}
             ask={ask}
             layout={side ? 'side' : 'spread'}
+            craft={card}
             className={`${doc.lead ? 'mt-6' : ''} ${side ? SIDE_INFOBOX : 'lg:mt-8'}`}
           />
         ) : null}
@@ -150,6 +176,17 @@ export function ArticleView({
             !side ? 'lg:mt-12' : doc.lead ? 'lg:col-start-1 lg:row-start-2 lg:mt-8' : 'lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-0'
           }`}
         >
+          {/*
+           * What the graph says first, then the wiki's text: how a raw
+           * material is had (short), what it goes into, a station's upgrades.
+           */}
+          {craft ? <ObtainWays obtain={craft.obtain} lang={lang} uiLang={uiLang} /> : null}
+          {craft ? (
+            <UsedIn usedIn={craft.usedIn} material={craft.item.id} selfSlug={article.slug} lang={lang} uiLang={uiLang} />
+          ) : null}
+          {craft?.station ? (
+            <StationPath station={craft.station} facet={stationFacet} selfSlug={article.slug} lang={lang} uiLang={uiLang} />
+          ) : null}
           {doc.blocks.length > 0 ? (
             <ArticleBody
               blocks={doc.blocks}
@@ -222,6 +259,30 @@ const SIDE_GRID = 'lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[auto
 /** The infobox column: beside the lead and the body, pinned below the nav while it fits the window. */
 const SIDE_INFOBOX =
   'lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0 lg:self-start lg:top-[calc(var(--nav-h)+1.5rem)] lg:data-sticky:sticky';
+
+/**
+ * Where a link to one of the item's levels lands (`articleLevelHref`: a
+ * "Usado en" card's "Mejora al nivel 2"): the top of the article, as any
+ * other link's does, with the level switcher on that level, which it reads
+ * from the address (`LevelProvider`).
+ *
+ * Next scrolls a page it opens at `#level-2` to the element of that id, and
+ * finding none it leaves the scroll where the last page had it: the Club
+ * opened as far down as Bone fragments had been read. These are those
+ * elements. Empty, they take no room and say nothing; their margin, a
+ * screen's height, takes the page past the room above the article to its
+ * very top, as a link without a level does.
+ */
+function LevelTargets({ levels }: { levels: number }) {
+  if (levels < 2) return null;
+  return (
+    <>
+      {Array.from({ length: levels - 1 }, (_, i) => (
+        <span key={i} id={`level-${i + 2}`} className="block scroll-mt-[100vh]" />
+      ))}
+    </>
+  );
+}
 
 /**
  * Said plainly rather than hidden. This text was translated by a model from

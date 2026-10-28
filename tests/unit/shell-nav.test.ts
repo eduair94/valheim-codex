@@ -107,6 +107,29 @@ describe('the tab bar', () => {
     expect(bar({ lang: 'en' })('nav ul > li > a').eq(2).text()).toBe('ᚳCraft');
   });
 
+  it('shows the nav search from 768px, where five tabs leave it room to type in', () => {
+    // Between 640 and 767px the five tabs would leave the field about 65px;
+    // the Search tab is one tap away.
+    const classes = (bar({ pathname: '/wiki/a/iron-sword' })('nav form[role="search"]').attr('class') ?? '').split(/\s+/);
+    expect(classes).toContain('md:block');
+    expect(classes).not.toContain('sm:block');
+    // Capped at 16rem wherever it shows, whichever width that starts at.
+    expect(classes.filter((name) => name.endsWith('max-w-64'))).toEqual(['max-w-64']);
+  });
+
+  it('gives every tab label room for its descenders, without moving it', () => {
+    // `truncate` clips at the label's padding box, and the link's
+    // `leading-none` makes the line box the font size, which a p hangs below:
+    // the padding widens the clip, and the equal negative margin keeps the
+    // layout as it was.
+    const $ = bar();
+    const labels = $('nav ul > li > a .truncate').toArray();
+    expect(labels).toHaveLength(5);
+    for (const label of labels) {
+      expect(($(label).attr('class') ?? '').split(/\s+/)).toEqual(expect.arrayContaining(['py-0.5', '-my-0.5']));
+    }
+  });
+
   it('marks the planner’s tab on the planner', () => {
     const $ = bar({ pathname: '/wiki/craft' });
     expect($(`nav a[aria-current]`).toArray().map((a) => $(a).attr('href'))).toEqual([CRAFT_HREF]);

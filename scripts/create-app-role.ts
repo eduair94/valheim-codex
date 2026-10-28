@@ -22,8 +22,11 @@ import { neon } from '@neondatabase/serverless';
 
 const ROLE = 'valheim_app';
 
-/** Read-only: the index. Written by the ingest, never by the app. */
-const READ_ONLY = ['pages', 'chunks', 'articles', 'settings', 'ingest_runs', 'locks'];
+/**
+ * Read-only: the index and the recipe graph. Written by the ingest, never by
+ * the app. `page_recipes` is left out: only the ingest reads it.
+ */
+const READ_ONLY = ['pages', 'chunks', 'articles', 'settings', 'ingest_runs', 'locks', 'recipe_graph'];
 
 /** Read-write: everything the app itself creates. */
 const READ_WRITE = [

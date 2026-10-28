@@ -36,19 +36,19 @@
     border-radius: 3px;
     vertical-align: 0.15em;
     cursor: pointer;
-    transition:
-      background 120ms ease,
-      border-color 120ms ease;
+    transition: border-color 120ms ease;
   }
   /*
-    Lit, the edge does the work and the fill deepens only to forge/15, which
-    keeps the forge numeral at 4.5:1 wherever the chip sits: 5.27:1 on bog,
-    4.64:1 on peat. At forge/26 it fell to 4.26:1 on the bog page.
+    Lit, only the edge changes: it turns full forge, and the fill stays at
+    forge/12. Every step deeper costs the forge numeral contrast, and the
+    lightest ground a chip sits on, a phone card's title (moss/45 over
+    peat/70), leaves no step to spare: 4.62:1 at rest there, and 4.38:1 at
+    forge/15, under the 4.5:1 floor. So a lit chip reads as well as a
+    resting one wherever it is: 5.53:1 on bog, 4.92:1 on peat.
   */
   .rune-chip:hover,
   .rune-chip:focus-visible,
   .rune-chip[data-active='true'] {
-    background: color-mix(in srgb, var(--color-forge) 15%, transparent);
     border-color: var(--color-forge);
   }
 

@@ -1,6 +1,7 @@
-import type { TextStreamPart, ToolSet } from 'ai';
+import { APICallError, NoObjectGeneratedError, type TextStreamPart, type ToolSet } from 'ai';
 import { describeError, logWarn } from '@/lib/log';
-import { recordFailure, recordSuccess, recordTimeout } from './circuit';
+import { isTripped, recordFailure, recordSuccess, recordTimeout, refusalOf, statedWaitMs, statusOf } from './circuit';
+import { RATE_LIMIT_WAIT_MS } from './models';
 import type { Candidate } from './provider';
 
 /**
@@ -13,6 +14,28 @@ import type { Candidate } from './provider';
  * and invisible. Once text is flowing the answer is committed: retrying then
  * would either duplicate what the reader has already seen or throw it away
  * mid-sentence, and neither is an improvement on a truncated answer.
+ *
+ * Two failures are worth asking the same provider again for, before moving
+ * on:
+ *
+ * - **A short rate limit.** "Please try again in 510ms" is a provider saying
+ *   when it will answer. Moving on instead reached, in production, four
+ *   providers that were out of credit or out of their day, and a translation
+ *   run stopped for want of a provider while the one that worked was half a
+ *   second from answering. A wait the refusal states is sat out on the same
+ *   provider when it is short enough for the caller (`maxWaitMs`) and still
+ *   leaves the provider a third of its deadline to answer in; otherwise the
+ *   chain moves on, so the chat's first word is never later for it.
+ * - **A bad reply** (`isBadReply`): the provider is up, and asked once more it
+ *   usually gets the reply right. Then the chain moves on as for any failure,
+ *   holding nothing against it.
+ *
+ * And the last provider, with nowhere to move on to, is asked again after a
+ * server error, an overloaded spell or a network that did not connect, after
+ * two seconds and then four (`isLastResort`). The chain does all of this
+ * asking itself, and the SDK none: its retries sat out a rate limit where the
+ * chain could not see it, so the deadline missed after that wait read as a
+ * request too long to answer (`ResponseTimeoutError.afterWait`).
  *
  * Two failures arrive without an error at all, and both used to pass for a
  * working provider:
@@ -55,29 +78,65 @@ export class EmptyResponseError extends Error {
   }
 }
 
-/** A provider that did not answer within its deadline. */
+/**
+ * A provider that did not answer within its deadline.
+ *
+ * Its message never uses the words of a refusal. A failure that carries no
+ * status is read by its words (circuit.ts), and "rate limit" in this one made
+ * the translator take a provider that had waited as it was told, and then run
+ * out of time, for one that refused: a run a reader was waiting on stopped on
+ * the spot.
+ */
 export class ResponseTimeoutError extends Error {
-  constructor(readonly afterMs?: number) {
-    super(afterMs ? `The model did not answer within ${afterMs} ms.` : 'The model stopped answering.');
+  constructor(
+    readonly afterMs?: number,
+    /**
+     * True when the provider spent part of that deadline waiting before it
+     * was asked again: out a rate limit it stated, or a backoff after a
+     * server error. It had what was left to answer in — a third of the
+     * deadline at the least (`ROOM_TO_ANSWER`) — so missing it says nothing
+     * about how long the request takes to answer, nor that the provider hangs.
+     */
+    readonly afterWait = false,
+  ) {
+    super(
+      afterMs
+        ? `The model did not answer within ${afterMs} ms${afterWait ? ', part of them spent waiting to ask it again' : ''}.`
+        : 'The model stopped answering.',
+    );
     this.name = 'ResponseTimeoutError';
   }
 }
 
 /**
- * How hard to try one provider before moving to the next.
+ * Whether a candidate is backed off and asked again after a transient
+ * failure, rather than left for the next one: the last, since there is no
+ * next — unless it is last because the breaker set it aside
+ * (`orderByCircuit`). Out of credit or out of its day, it refuses every retry
+ * the same way: Gemini's spent daily quota, last in line, cost three requests
+ * and six seconds of backoff on every chain that reached it.
  *
- * Zero for every provider that has another behind it. The SDK's default is
- * three attempts with exponential backoff, which is right when there is
- * nowhere else to go and wrong here: a rate-limited Gemini spent six seconds
- * failing three times while four other providers sat idle. The last provider
- * keeps its retries, because at that point backoff is the only option left.
+ * Every other provider is left at its first failure. Backing off is right
+ * when there is nowhere else to go and wrong otherwise: a rate-limited
+ * Gemini spent six seconds failing three times while four other providers
+ * sat idle.
  */
-function attemptsFor(index: number, total: number): number {
-  return index === total - 1 ? 2 : 0;
+function isLastResort(candidate: Candidate, index: number, total: number): boolean {
+  return index === total - 1 && !isTripped(candidate.name);
 }
+
+/** Backoffs the last resort gets after a transient failure: the SDK's own two. */
+const BACKOFFS = 2;
+
+/** The first of them, doubled for the second: the SDK's two seconds, then four. */
+const BACKOFF_MS = 2_000;
 
 /** Passed to the caller so it can hand the budget and the deadline to the SDK. */
 export type Attempt = {
+  /**
+   * Always 0, for the SDK: the chain asks again itself (`againAfter`), where
+   * it sees each wait and keeps the provider's deadline.
+   */
   readonly maxRetries: number;
   /** Aborts when this attempt's deadline passes or the caller's signal does. */
   readonly abortSignal: AbortSignal;
@@ -108,6 +167,15 @@ export type FallbackOptions = {
    * names are shared across features (see circuit.ts).
    */
   demoteOnTimeout?: boolean;
+  /**
+   * The longest wait a rate limit may state for it to be sat out on the same
+   * provider. Twenty seconds unless the caller can afford longer (the
+   * translator); `timeoutMs` bounds it further.
+   */
+  maxWaitMs?: number;
+  /** The clock and the wait, for a test. */
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 };
 
 type AttemptControl = {
@@ -116,23 +184,157 @@ type AttemptControl = {
   timedOut: () => boolean;
   /** Stops the deadline: the attempt finished, or proved itself. */
   settle: () => void;
+  /** Milliseconds of this attempt's deadline left at `now`: unbounded without one. */
+  left: (now: number) => number;
 };
 
-function startAttempt(outer: AbortSignal | undefined, timeoutMs: number | undefined): AttemptControl {
+function startAttempt(outer: AbortSignal | undefined, timeoutMs: number | undefined, now: number): AttemptControl {
   const controller = new AbortController();
   let timedOut = false;
-  const timer =
-    timeoutMs && timeoutMs > 0
-      ? setTimeout(() => {
-          timedOut = true;
-          controller.abort(new ResponseTimeoutError(timeoutMs));
-        }, timeoutMs)
-      : undefined;
+  const bounded = timeoutMs !== undefined && timeoutMs > 0;
+  const timer = bounded
+    ? setTimeout(() => {
+        timedOut = true;
+        controller.abort(new ResponseTimeoutError(timeoutMs));
+      }, timeoutMs)
+    : undefined;
+  const endsAt = bounded ? now + timeoutMs : Number.POSITIVE_INFINITY;
   return {
     signal: outer ? AbortSignal.any([outer, controller.signal]) : controller.signal,
     timedOut: () => timedOut,
     settle: () => clearTimeout(timer),
+    left: (at) => endsAt - at,
   };
+}
+
+/**
+ * A reply that came back and does not fit what was asked: text the SDK could
+ * not read as the object requested (`NoObjectGeneratedError`), or a reply the
+ * provider checked against the schema itself and turned down — Groq answers
+ * 400 "Failed to validate JSON", or "Failed to generate JSON", with the
+ * model's text in `failed_generation`. The provider is up and answering; the
+ * production run took Groq for one that was not, and lost the batch.
+ */
+export function isBadReply(error: unknown): boolean {
+  if (NoObjectGeneratedError.isInstance(error)) return true;
+  if (statusOf(error) !== 400 || typeof error !== 'object' || error === null) return false;
+  const { message, responseBody } = error as { message?: unknown; responseBody?: unknown };
+  const said = `${typeof message === 'string' ? message : ''}\n${typeof responseBody === 'string' ? responseBody.slice(0, 4_000) : ''}`;
+  return /failed to (?:validate|generate) json|failed_generation|json_(?:validate|generate)_failed/i.test(said);
+}
+
+/** Rate-limit waits sat out on one provider before moving on, however short each one is. */
+const MAX_WAITS = 3;
+
+/**
+ * The share of its deadline a provider must still have after a wait: asked
+ * again with no time left to answer in, it was waited on for nothing.
+ */
+const ROOM_TO_ANSWER = 1 / 3;
+
+/**
+ * What one provider's attempt has spent on asking again — rate-limit waits,
+ * backoffs, bad replies — and the bad reply that made it ask: if the second
+ * try fails another way, the provider still answered once, and the caller is
+ * told so (`failuresOf`).
+ */
+type Tries = { waits: number; backoffs: number; badReplies: number; badReply?: unknown };
+
+/** Whether the provider spent part of its deadline waiting before it was asked again. */
+function waited(tries: Tries): boolean {
+  return tries.waits + tries.backoffs > 0;
+}
+
+/**
+ * A failure worth backing off on and asking the last resort again for: one
+ * the SDK would have retried (`isRetryable`: a server error, an overloaded
+ * provider, a network that did not connect, a rate limit), but no refusal for
+ * good or for the day, and no rate limit that named a wait of its own, which
+ * is sat out as stated or not at all.
+ */
+function isTransient(error: unknown, now: number): boolean {
+  if (!APICallError.isInstance(error) || !error.isRetryable) return false;
+  const refusal = refusalOf(error);
+  if (refusal === 'permanent' || refusal === 'daily') return false;
+  return refusal !== 'rate-limit' || statedWaitMs(error, now) === undefined;
+}
+
+/**
+ * What one provider's attempt reports: its last failure, after the bad reply
+ * it gave first when the try after that failed some other way.
+ */
+function failuresOf(name: string, failure: unknown, tries: Tries): { name: string; error: unknown }[] {
+  const answeredFirst = tries.badReply !== undefined && !isBadReply(failure);
+  return answeredFirst ? [{ name, error: tries.badReply }, { name, error: failure }] : [{ name, error: failure }];
+}
+
+/**
+ * How long to wait before asking the same provider again after `error`, or
+ * undefined to move on: no time at all, once, after a bad reply; the wait a
+ * per-minute rate limit states, when the caller will wait that long; and,
+ * for the last resort alone, two seconds and then four after a transient
+ * failure. Every wait must leave the provider a third of its deadline to
+ * answer in. A daily quota is never waited for here, whatever its message
+ * says: Google's names a wait of seconds, which is its per-minute window's,
+ * not the day's.
+ */
+function againAfter(
+  name: string,
+  error: unknown,
+  attempt: AttemptControl,
+  tries: Tries,
+  options: FallbackOptions,
+  now: number,
+  lastResort: boolean,
+): number | undefined {
+  if (isBadReply(error)) {
+    if (tries.badReplies >= 1) return undefined;
+    tries.badReplies += 1;
+    tries.badReply = error;
+    logWarn('model', `${name} replied with JSON that does not fit the schema; asking it once more`);
+    return 0;
+  }
+  const room = options.timeoutMs !== undefined && options.timeoutMs > 0 ? options.timeoutMs * ROOM_TO_ANSWER : 0;
+  const fits = (wait: number): boolean => wait <= attempt.left(now) - room;
+  const summary = describeError(error);
+  const stated = refusalOf(error) === 'rate-limit' ? statedWaitMs(error, now) : undefined;
+  if (stated !== undefined) {
+    if (tries.waits >= MAX_WAITS || stated > (options.maxWaitMs ?? RATE_LIMIT_WAIT_MS) || !fits(stated)) return undefined;
+    tries.waits += 1;
+    logWarn('model', `${name} is rate-limited; asking it again in ${(stated / 1000).toFixed(1)} s rather than the next provider`, {
+      status: summary.statusCode,
+      message: summary.message,
+    });
+    return stated;
+  }
+  if (!lastResort || tries.backoffs >= BACKOFFS || !isTransient(error, now)) return undefined;
+  const backoff = BACKOFF_MS * 2 ** tries.backoffs;
+  if (!fits(backoff)) return undefined;
+  tries.backoffs += 1;
+  logWarn('model', `${name} failed with no provider behind it; asking it again in ${(backoff / 1000).toFixed(1)} s`, {
+    status: summary.statusCode,
+    message: summary.message,
+  });
+  return backoff;
+}
+
+/** Waits `ms`, or rejects with the reason `signal` aborts with, whichever comes first. */
+async function pause(ms: number, signal: AbortSignal, sleep: ((ms: number) => Promise<void>) | undefined): Promise<void> {
+  signal.throwIfAborted();
+  if (ms <= 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort = (): void => {};
+  try {
+    await new Promise<void>((resolve, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (sleep) sleep(ms).then(resolve, reject);
+      else timer = setTimeout(resolve, ms);
+    });
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 /**
@@ -140,12 +342,14 @@ function startAttempt(outer: AbortSignal | undefined, timeoutMs: number | undefi
  * `ResponseTimeoutError` when this attempt's own deadline fired, or when the
  * stream stalled before its first word (`proveStream`); a caller's timer
  * that fired instead (translation's `AbortSignal.timeout`) arrives as its own
- * `TimeoutError`, is not a permanent refusal, and so records nothing.
+ * `TimeoutError`, is not a permanent refusal, and so records nothing. Nor is
+ * a deadline missed after a wait — out a rate limit, or a backoff: the
+ * provider spent that time waiting as it was told, not hanging.
  */
-function remember(name: string, failure: unknown, options: FallbackOptions): void {
+function remember(name: string, failure: unknown, options: FallbackOptions, afterWait: boolean): void {
   if (options.circuit === false) return;
   if (failure instanceof ResponseTimeoutError) {
-    if (options.demoteOnTimeout) recordTimeout(name);
+    if (options.demoteOnTimeout && !afterWait) recordTimeout(name);
     return;
   }
   recordFailure(name, failure);
@@ -160,7 +364,7 @@ function warnFallback(name: string, error: unknown, hasNext: boolean): void {
   );
 }
 
-/** For a non-streaming call — the query rewrite. */
+/** For a non-streaming call — the query rewrite, a translation batch. */
 export async function withFallback<T>(
   list: Candidate[],
   run: (candidate: Candidate, attempt: Attempt) => Promise<T>,
@@ -168,22 +372,31 @@ export async function withFallback<T>(
 ): Promise<{ value: T; candidate: Candidate }> {
   const failures: { name: string; error: unknown }[] = [];
   const circuit = options.circuit ?? true;
+  const now = options.now ?? Date.now;
 
   for (const [index, candidate] of list.entries()) {
     options.signal?.throwIfAborted();
-    const attempt = startAttempt(options.signal, options.timeoutMs);
+    const attempt = startAttempt(options.signal, options.timeoutMs, now());
+    const tries: Tries = { waits: 0, backoffs: 0, badReplies: 0 };
+    const lastResort = isLastResort(candidate, index, list.length);
     try {
-      const value = await run(candidate, {
-        maxRetries: attemptsFor(index, list.length),
-        abortSignal: attempt.signal,
-      });
-      if (circuit) recordSuccess(candidate.name);
-      return { value, candidate };
+      for (;;) {
+        try {
+          const value = await run(candidate, { maxRetries: 0, abortSignal: attempt.signal });
+          if (circuit) recordSuccess(candidate.name);
+          return { value, candidate };
+        } catch (error) {
+          if (options.signal?.aborted || attempt.timedOut()) throw error;
+          const wait = againAfter(candidate.name, error, attempt, tries, options, now(), lastResort);
+          if (wait === undefined) throw error;
+          await pause(wait, attempt.signal, options.sleep);
+        }
+      }
     } catch (error) {
       if (options.signal?.aborted) throw error;
-      const failure = attempt.timedOut() ? new ResponseTimeoutError(options.timeoutMs) : error;
-      remember(candidate.name, failure, options);
-      failures.push({ name: candidate.name, error: failure });
+      const failure = attempt.timedOut() ? new ResponseTimeoutError(options.timeoutMs, waited(tries)) : error;
+      remember(candidate.name, failure, options, waited(tries));
+      failures.push(...failuresOf(candidate.name, failure, tries));
       warnFallback(candidate.name, failure, index < list.length - 1);
     } finally {
       attempt.settle();
@@ -264,27 +477,38 @@ export async function streamWithFallback(
 ): Promise<{ stream: ReadableStream<Part>; candidate: Candidate }> {
   const failures: { name: string; error: unknown }[] = [];
   const circuit = options.circuit ?? true;
+  const now = options.now ?? Date.now;
 
   for (const [index, candidate] of list.entries()) {
     options.signal?.throwIfAborted();
-    const attempt = startAttempt(options.signal, options.timeoutMs);
+    const attempt = startAttempt(options.signal, options.timeoutMs, now());
+    const tries: Tries = { waits: 0, backoffs: 0, badReplies: 0 };
+    const lastResort = isLastResort(candidate, index, list.length);
     try {
-      const built = build(candidate, {
-        maxRetries: attemptsFor(index, list.length),
-        abortSignal: attempt.signal,
-      });
-      const stream = await proveStream(built.stream, options.signal);
-      // Text arrived in time. From here a stall is the caller's chunk
-      // deadline to enforce; this one is spent.
-      attempt.settle();
-      if (circuit) recordSuccess(candidate.name);
-      return { stream, candidate };
+      for (;;) {
+        try {
+          const built = build(candidate, { maxRetries: 0, abortSignal: attempt.signal });
+          const stream = await proveStream(built.stream, options.signal);
+          // Text arrived in time. From here a stall is the caller's chunk
+          // deadline to enforce; this one is spent.
+          attempt.settle();
+          if (circuit) recordSuccess(candidate.name);
+          return { stream, candidate };
+        } catch (error) {
+          if (options.signal?.aborted || attempt.timedOut()) throw error;
+          // A refusal arrives as the stream's first part; the same provider's
+          // stream is opened again once the wait it states is over.
+          const wait = againAfter(candidate.name, error, attempt, tries, options, now(), lastResort);
+          if (wait === undefined) throw error;
+          await pause(wait, attempt.signal, options.sleep);
+        }
+      }
     } catch (error) {
       attempt.settle();
       if (options.signal?.aborted) throw error;
-      const failure = attempt.timedOut() ? new ResponseTimeoutError(options.timeoutMs) : error;
-      remember(candidate.name, failure, options);
-      failures.push({ name: candidate.name, error: failure });
+      const failure = attempt.timedOut() ? new ResponseTimeoutError(options.timeoutMs, waited(tries)) : error;
+      remember(candidate.name, failure, options, waited(tries));
+      failures.push(...failuresOf(candidate.name, failure, tries));
       warnFallback(candidate.name, failure, index < list.length - 1);
     }
   }

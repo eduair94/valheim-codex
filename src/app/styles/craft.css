@@ -1,0 +1,639 @@
+/*
+  The article's crafting surfaces: the craft card in the infobox, and the
+  sections that open the text where the recipe graph knows the item ("Cómo
+  se consigue", "Usado en", a station's upgrades). Imported by the article's
+  page, not globally.
+
+  They extend the infobox's own vocabulary rather than adding one: the card's
+  tiles are the recipe row's (`.recipe-tile` in tables.css), the cards of
+  "Usado en" are its tiles grown up, quantities are forge monospace, and
+  nothing is clipped to round a corner.
+
+  Short classes, because "Usado en" repeats them up to 75 times on a page
+  and each is sent twice, in the HTML and in the payload React hydrates
+  from. All of them sit in `@layer components`, so a utility on the same
+  element wins.
+
+  The `@reference` emits nothing: it gives each color-mix() below a fallback
+  in plain colour, for browsers without color-mix() (globals.css says more).
+*/
+@reference '../globals.css';
+
+@layer components {
+  /*
+    The craft card: a moss-edged block, like the stat lists around it, and a
+    size container, so its tiles take their columns from the room the card
+    is given (two in a phone's column or the desktop infobox, three or four
+    across a spread infobox), not from the screen. Never split across the
+    columns of a spread infobox.
+  */
+  .craft-card {
+    container-type: inline-size;
+    break-inside: avoid;
+    padding: 0.75rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+  }
+
+  /*
+    The piece a set's page shows, under the card's heading: the page's own
+    name is the set's.
+  */
+  .craft-card-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin-top: 0.75rem;
+  }
+  .craft-card-item-name {
+    display: block;
+    font-size: 1rem;
+    line-height: 1.3;
+    color: var(--color-birch);
+  }
+
+  /*
+    Where the step is made, linked to the station. Mono like the other
+    meta lines; 44px tall to a thumb.
+  */
+  .craft-chip {
+    display: inline-flex;
+    min-height: 1.75rem;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.25;
+    color: var(--color-birch);
+  }
+  .craft-chip-link {
+    transition: border-color 150ms ease-out;
+  }
+  .craft-chip-link:hover {
+    border-color: color-mix(in srgb, var(--color-forge) 50%, transparent);
+  }
+
+  /*
+    The three modes: the app's segmented control (`SegmentedLinks`), as
+    buttons, since a mode is no address. 2px segments nest in the 6px track
+    with 4px between. On a phone the track takes the card's width and the
+    segments share it, as the level tabs above do, and a label too long for
+    its share ("Materias primas" at 360px) takes a second line rather than
+    pushing the track past the card; from 640px the track is as wide as its
+    segments.
+  */
+  .craft-modes {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+  }
+  .craft-mode {
+    display: inline-flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    min-height: 2rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.125rem;
+    font-size: 0.875rem;
+    line-height: 1.15;
+    text-align: center;
+    text-wrap: balance;
+    color: var(--color-ash);
+    transition:
+      color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .craft-mode:hover {
+    background: var(--color-moss);
+    color: var(--color-birch);
+  }
+  /* Selected: forge, and a birch focus ring, which a forge one would vanish into. */
+  .craft-mode[aria-pressed='true'] {
+    --focus-ring: var(--color-birch);
+    background: var(--color-forge);
+    color: var(--color-bog);
+  }
+
+  /*
+    The materials: the recipe row's tiles, each a picture, the names and
+    the count at its end. One column in the room a phone or the desktop's
+    infobox column gives the card, where two put "Base de hidromiel:
+    Resistencia al veneno" over seven lines beside an empty half; more as
+    the card widens (the container queries at the end). A row's tiles share
+    its height, so a name that wraps to two lines does not leave its
+    neighbour short.
+  */
+  .craft-tiles {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+  .craft-tile {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--color-moss) 60%, transparent);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--color-peat) 20%, transparent);
+  }
+  .craft-tile-link {
+    border-color: var(--color-moss);
+    background: color-mix(in srgb, var(--color-peat) 40%, transparent);
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .craft-tile-link:hover {
+    border-color: color-mix(in srgb, var(--color-forge) 60%, transparent);
+    background: var(--color-peat);
+  }
+
+  /* A picture's plate: it holds its place whether or not the picture comes. */
+  .craft-icon {
+    display: flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.125rem;
+    background: color-mix(in srgb, var(--color-bog) 60%, transparent);
+    font-size: 0.875rem;
+  }
+  .craft-icon-small {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.75rem;
+  }
+  /* Drawn at its own size or smaller, never enlarged: most sprites are 64px and blur when stretched. */
+  .craft-picture {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: scale-down;
+  }
+
+  .craft-name,
+  .craft-en,
+  .craft-qty {
+    display: block;
+    line-height: 1.25;
+  }
+  /*
+    Wraps rather than truncates: "Clavos de bron…" tells the reader nothing.
+    Nor is it hyphenated: in a narrow tile "Base de hidro-miel: Resisten-cia"
+    broke two of its words in half.
+  */
+  .craft-name {
+    font-size: 0.8125rem;
+    color: var(--color-birch);
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+  /* The English name the game shows, under the reader's. */
+  .craft-en {
+    margin-top: 0.125rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-ash);
+    overflow-wrap: anywhere;
+  }
+  /* The count is what gets compared against the chest: monospaced, amber. */
+  .craft-qty,
+  .craft-qty-inline {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-forge);
+  }
+  .craft-qty {
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  /* The steps between, in the order to make them: one line each, the count in forge. */
+  .craft-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .craft-step-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.375;
+  }
+
+  /*
+    How many to make: a field between two buttons, in one moss-edged group.
+    The ends round with the group's corners rather than the group clipping
+    them. 44px to a thumb, and the field 16px under a coarse pointer, or iOS
+    zooms into it.
+  */
+  .craft-stepper {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    transition: border-color 150ms ease-out;
+  }
+  .craft-stepper:hover {
+    border-color: var(--color-lichen);
+  }
+  .craft-bump {
+    display: inline-flex;
+    width: 2rem;
+    min-height: 2rem;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--color-birch);
+    transition:
+      color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .craft-bump:first-child {
+    border-radius: calc(0.375rem - 1px) 0 0 calc(0.375rem - 1px);
+  }
+  .craft-bump:last-child {
+    border-radius: 0 calc(0.375rem - 1px) calc(0.375rem - 1px) 0;
+  }
+  .craft-bump:hover {
+    background: var(--color-moss);
+  }
+  /* At its limit a button stays focusable (`aria-disabled`, not `disabled`) and dims, as disabled controls do. */
+  .craft-bump[aria-disabled='true'] {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .craft-bump[aria-disabled='true']:hover {
+    background: none;
+  }
+  .craft-count {
+    width: 2.75rem;
+    border-inline: 1px solid var(--color-moss);
+    background: var(--color-bog);
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-birch);
+  }
+  .craft-count:focus {
+    border-color: color-mix(in srgb, var(--color-forge) 50%, transparent);
+  }
+
+  /*
+    An onward link set as a secondary action: "Qué se fabrica acá", and the
+    toggle of a busy group. Neutral, a moss edge and birch text: forge light
+    marks counts and the reader's place on these pages, and a forge outline
+    under every busy group drew the eye from both.
+  */
+  .craft-action,
+  .craft-more > summary {
+    display: inline-flex;
+    min-height: 2rem;
+    align-items: center;
+    gap: 0.375rem;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-birch);
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .craft-action:hover,
+  .craft-more > summary:hover {
+    border-color: var(--color-lichen);
+    background: var(--color-peat);
+  }
+
+  /*
+    "Usado en" and a station's upgrades: cards in a grid of one column on a
+    phone and up to three where there is room, each at least 16rem wide.
+    The third of the width (less its two gaps) as the floor caps the grid at
+    three columns however wide it gets.
+  */
+  .craft-uses {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(max(16rem, calc((100% - 1rem) / 3)), 1fr));
+    gap: 0.5rem;
+  }
+  /*
+    The cards of a row share its height; what each says of where it is made
+    closes it at the same line (`.craft-use-meta`), however many materials
+    the one beside it takes.
+  */
+  .craft-use {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--color-peat) 40%, transparent);
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  /*
+    Only a card that leads somewhere answers the pointer. One that is named
+    but not linked (a thing the page itself describes, or one with no
+    article) lit up all the same, and a click on it did nothing.
+  */
+  .craft-use:has(.craft-use-link):hover {
+    border-color: color-mix(in srgb, var(--color-forge) 50%, transparent);
+    background: var(--color-peat);
+  }
+  .craft-use-head {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+  }
+  /* Wraps rather than truncates, and never hyphenates: "Base de hidro-miel" read as two words. */
+  .craft-use-link,
+  .craft-use-name {
+    display: block;
+    font-size: 1rem;
+    line-height: 1.3;
+    color: var(--color-birch);
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+  /*
+    The name opens the article, and its box stretches over the whole card,
+    so a thumb can land anywhere on it; the focus ring stays on the name.
+  */
+  .craft-use-link::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+
+  /*
+    What the step takes, as chips that wrap: a picture, the name, the count.
+    The page's own material leads and is lit, a forge tint under a forge
+    edge, the reader's place on every card (never a stripe down its side).
+    A chip as long as the card wraps its name inside itself.
+  */
+  .craft-mats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+  .craft-mat {
+    display: inline-flex;
+    max-width: 100%;
+    min-height: 2rem;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem 0.125rem 0.125rem;
+    border: 1px solid color-mix(in srgb, var(--color-moss) 70%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--color-bog) 40%, transparent);
+    font-size: 0.8125rem;
+    line-height: 1.25;
+  }
+  /* Forge on its own 10% tint, over the card's peat: about 5.1:1. */
+  .craft-mat-self {
+    border-color: color-mix(in srgb, var(--color-forge) 40%, transparent);
+    background: color-mix(in srgb, var(--color-forge) 10%, transparent);
+  }
+  .craft-mat-icon {
+    display: flex;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+  }
+  .craft-mat-name {
+    min-width: 0;
+    color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+    overflow-wrap: break-word;
+  }
+  .craft-mat-qty {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-forge);
+  }
+
+  /*
+    What changes what the step is, with the thing's name: an upgrade to a
+    level, a yield. Neutral badges, birch on a moss edge.
+  */
+  .craft-use-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.375rem;
+  }
+  /*
+    Where the step is made, as a caption. Last, as the game's panel says it
+    under the materials, and on the card's last line, so the captions of a
+    row line up.
+  */
+  .craft-use-meta {
+    margin-top: auto;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    color: var(--color-ash);
+  }
+  .craft-badge {
+    display: inline-block;
+    padding-inline: 0.375rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    color: var(--color-birch);
+  }
+
+  /* A station's group: its picture, its name (the station's article) and how many uses it holds. */
+  .craft-group-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.625rem;
+    font-size: 1rem;
+    line-height: 1.3;
+    color: var(--color-birch);
+  }
+  .craft-group-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .craft-group-count {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ash);
+  }
+
+  /* The rest of a busy group, behind a toggle that says what it does, open or shut. */
+  .craft-more > summary {
+    margin-top: 0.5rem;
+    cursor: pointer;
+    list-style: none;
+  }
+  .craft-more > summary::-webkit-details-marker {
+    display: none;
+  }
+  .craft-more[open] .craft-more-closed,
+  .craft-more:not([open]) .craft-more-open {
+    display: none;
+  }
+  .craft-more > .craft-uses {
+    margin-top: 0.5rem;
+  }
+
+  /*
+    A phone gives each card the width, so a busy group shows four of them
+    before its toggle rather than six, and Wood's six groups take a few
+    screens rather than eight. Only while the toggle is shut: opening it
+    shows them all. And only where `:has()` works, so a browser without it
+    shows the six, never fewer than its toggle can bring back.
+  */
+  @media (width < 40rem) {
+    .craft-group:has(> .craft-more:not([open])) > .craft-uses > .craft-use:nth-child(n + 5) {
+      display: none;
+    }
+  }
+
+  /*
+    "Cómo se consigue": a line per way, its name over its sources on a
+    phone and beside them from 640px; each source a chip with its picture,
+    linked to its article where it has one.
+  */
+  .craft-ways {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .craft-way {
+    display: grid;
+    gap: 0.375rem;
+  }
+  .craft-way-from {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .craft-source {
+    display: inline-flex;
+    min-height: 2.25rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem 0.25rem 0.25rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--color-peat) 60%, transparent);
+    font-size: 0.875rem;
+    line-height: 1.25;
+    color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+  }
+  .craft-source-link {
+    transition: border-color 150ms ease-out;
+  }
+  .craft-source-link:hover {
+    border-color: color-mix(in srgb, var(--color-forge) 40%, transparent);
+  }
+  .craft-source-icon {
+    display: flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.125rem;
+    background: color-mix(in srgb, var(--color-bog) 60%, transparent);
+    font-size: 0.75rem;
+  }
+  .craft-tool {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-ash);
+  }
+  .craft-coins {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-forge);
+  }
+
+  @container (width >= 28rem) {
+    .craft-tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @container (width >= 40rem) {
+    .craft-tiles {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @container (width >= 54rem) {
+    .craft-tiles {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (width >= 40rem) {
+    .craft-modes {
+      width: fit-content;
+    }
+    .craft-mode {
+      flex: none;
+      white-space: nowrap;
+    }
+    .craft-way {
+      grid-template-columns: 11rem minmax(0, 1fr);
+      align-items: baseline;
+    }
+  }
+
+  /* 44px to a thumb, and the count field at 16px, or iOS zooms the page into it. */
+  @media (pointer: coarse) {
+    .craft-chip-link,
+    .craft-mode,
+    .craft-action,
+    .craft-source-link,
+    .craft-group-link,
+    .craft-more > summary {
+      min-height: 2.75rem;
+    }
+    .craft-bump {
+      width: 2.75rem;
+      min-height: 2.75rem;
+    }
+    .craft-count {
+      width: 3rem;
+      font-size: 1rem;
+    }
+  }
+}

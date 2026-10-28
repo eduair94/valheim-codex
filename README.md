@@ -349,8 +349,8 @@ blocked from day one.
 
 ### Database privileges
 
-The app connects as `valheim_app`, which can read the index and write chat
-history, and nothing else — no DDL, and no write to `pages`, `chunks`,
+The app connects as `valheim_app`, which can read the index and the recipe
+graph and write chat history, and nothing else — no DDL, and no write to `pages`, `chunks`,
 `articles` or `settings`. Those belong to the ingest, which runs from a trusted
 machine under the owner credential.
 
@@ -376,7 +376,8 @@ the app.
 | `pnpm ingest --limit 20` | Index 20 pages, skipping pruning — a smoke test |
 | `pnpm ingest --reembed` | Recompute every vector with the index's own provider |
 | `pnpm ingest --switch-provider=<id>` | Move the index to another embedding provider (with `EMBEDDING_PROVIDER=<id>`) |
-| `pnpm translate:es --priority` | Translate 30 key pages (biomes, bosses, stations, hubs) into Spanish (`--dry-run`, `--slugs`, `--max-strings`, `--rpm` …) |
+| `pnpm ingest --recipes` | Read the recipes of pages that lack current ones and rebuild the recipe graph; no article, translation or vector is touched |
+| `pnpm translate:es --priority` | Translate 30 key pages (biomes, bosses, stations, hubs) into Spanish (`--dry-run`, `--slugs`, `--max-strings`, `--tpm` …) |
 | `pnpm translate:es --rebuild` | Re-derive stored translations from their memory; no model calls |
 | `pnpm db:app-role` | Create or rotate the least-privilege `valheim_app` role |
 | `pnpm eval` | Retrieval quality: recall@5 over `tests/eval/golden.jsonl` |
@@ -529,6 +530,22 @@ and still passes its health check.
 - Cloudflare: keep Rocket Loader off (it rewrites scripts and breaks
   hydration and the CSP), and consider a rate-limiting rule on `/api/auth/*`
   as a first line in front of the app's own limits.
+
+**Upgrading to the crafting release** (migration 0010, recipes version 2):
+
+- The app role reads one more table: `GRANT SELECT ON recipe_graph TO
+  valheim_app` with the owner credential (`pnpm db:app-role` grants it to a
+  new role).
+- `pnpm ingest --recipes --neon`, from a trusted machine: it reads every
+  page's recipes once (about 1,058 fetches, a few minutes), assembles the
+  graph and stores it, and touches no article, translation or vector. Run it
+  again after editing `src/lib/craft/recipe-overrides.ts`. Item pages show
+  the craft card and the "Usado en" sections within the hour, or at once in a
+  container built after the run.
+- The translator paces itself by tokens: `--tpm` defaults to 4,000, half of
+  Groq's 8,000 a minute, so the chat keeps room, and `--rpm` has no default.
+  A run still spends Groq's day, so run `--priority` while the chat is quiet.
+  It can now stop as rate-limited, apart from "no provider answered".
 
 ### `restart` does not reload `.env`
 

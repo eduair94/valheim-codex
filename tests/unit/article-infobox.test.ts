@@ -11,7 +11,9 @@ import {
   tabSetKind,
   usefulTabs,
   valueLines,
+  withoutRecipes,
 } from '@/components/wiki/article/infobox-model';
+import type { ArticleInfobox } from '@/lib/wiki/article-types';
 
 describe('statLayout (LM-01)', () => {
   it('keeps a short value beside its label', () => {
@@ -130,5 +132,54 @@ describe('articleLayout', () => {
   it('gives the text the whole width when there is no infobox', async () => {
     const swords = await fixture('Swords');
     expect(articleLayout(swords, null)).toBe('single');
+  });
+});
+
+describe('withoutRecipes', () => {
+  it('drops the recipe rows, and a group left with nothing', () => {
+    const groups = withoutRecipes([
+      { label: 'Crafting materials', rows: [{ label: 'Crafting Materials', value: 'Wood x2\nIron x20' }] },
+      { label: 'Properties', rows: [{ label: 'Weight', value: '1' }, { label: 'Materiales de fabricación', value: 'Madera x2' }] },
+    ]);
+    expect(groups).toEqual([{ label: 'Properties', rows: [{ label: 'Weight', value: '1' }] }]);
+  });
+
+  it('leaves every other row alone', () => {
+    const groups = [{ label: 'Properties', rows: [{ label: 'Crafting Level', value: '2' }, { label: 'Source', value: 'Forge' }] }];
+    expect(withoutRecipes(groups)).toEqual(groups);
+  });
+});
+
+describe('infoboxUnits with a craft card', () => {
+  const box = (rows: { label: string; value: string }[]): ArticleInfobox => ({
+    title: 'Iron Sword',
+    image: null,
+    common: [{ label: 'Crafting', rows }],
+    tabs: [],
+  });
+  const nine = 'A x1\nB x1\nC x1\nD x1\nE x1\nF x1\nG x1\nH x1\nI x1';
+
+  it("counts the card's height instead of the recipe row's", () => {
+    // The card: 4 units, and 1.6 for each tile of its widest recipe, one to a
+    // line in the infobox's column, where the card stands beside the text.
+    expect(infoboxUnits(box([{ label: 'Crafting Materials', value: 'Wood x2' }]), 9)).toBeCloseTo(4 + 9 * 1.6);
+    expect(infoboxUnits(box([{ label: 'Crafting Materials', value: nine }]), 3)).toBeCloseTo(4 + 3 * 1.6);
+  });
+
+  it('counts a group the card empties as nothing, and the rest as before', () => {
+    const rows = [
+      { label: 'Weight', value: '1' },
+      { label: 'Crafting Materials', value: nine },
+    ];
+    expect(infoboxUnits(box(rows))).toBeCloseTo(1.5 + 1 + 1 + Math.ceil(9 / 2) * 1.6);
+    expect(infoboxUnits(box(rows), 9)).toBeCloseTo(4 + 9 * 1.6 + 1.5 + 1);
+  });
+
+  it('keeps the layout decision on the same footing', async () => {
+    const raw = await readFile('tests/fixtures/Iron_Sword.json', 'utf8');
+    const sword = await extractArticle((JSON.parse(raw) as { parse: { text: string } }).parse.text);
+    // The sword's stats still outweigh its text with a card of three materials in place of its recipe rows.
+    expect(articleLayout(sword, sword.infobox, 3)).toBe('spread');
+    expect(articleLayout(sword, null, 3)).toBe('single');
   });
 });

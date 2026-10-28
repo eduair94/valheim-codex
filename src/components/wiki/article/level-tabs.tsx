@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
+import { useLevel } from './level-context';
 
 export type LevelTab = {
   /** What the tab says: "Nivel 2", "1★", "Trofeo". */
@@ -32,6 +33,10 @@ export type LevelTab = {
  * rows in columns below; inside the flow of the columns it landed at the foot
  * of the first one, and a click changed numbers 400px above it, two columns
  * over.
+ *
+ * Upgrade levels are the article's one selected level (`LevelProvider`),
+ * which the craft card follows and the address can name; star levels and
+ * variants, with no provider around them, keep their own.
  */
 export function LevelTabs({
   label,
@@ -40,6 +45,7 @@ export function LevelTabs({
   panels,
   uiLang,
   spread = false,
+  before,
   after,
   className,
 }: {
@@ -51,17 +57,26 @@ export function LevelTabs({
   uiLang?: string;
   /** The infobox is spread over three columns from 1024px. */
   spread?: boolean;
+  /**
+   * What sits between the switcher and the levels' rows, across the whole
+   * width when spread: the craft card, which changes with the level as the
+   * rows do, and so sits under the switcher with them.
+   */
+  before?: React.ReactNode;
   /** What follows the levels' rows in their flow: the docked "ask" link. */
   after?: React.ReactNode;
   className?: string;
 }) {
   const id = useId();
-  const [active, setActive] = useState(0);
+  const level = useLevel();
+  const [own, setOwn] = useState(0);
+  const active = level ? level.index : own;
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 
   const select = (index: number): void => {
     const next = (index + tabs.length) % tabs.length;
-    setActive(next);
+    if (level) level.select(next);
+    else setOwn(next);
     buttons.current[next]?.focus();
   };
 
@@ -132,6 +147,8 @@ export function LevelTabs({
           </p>
         ) : null}
       </div>
+
+      {before ? <div className="mt-6">{before}</div> : null}
 
       {/*
        * The selected level's rows, then whatever ends the box. One flow, so
