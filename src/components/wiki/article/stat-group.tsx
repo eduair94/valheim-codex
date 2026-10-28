@@ -27,6 +27,10 @@ const SENTENCE = 48;
  * On a tablet the rows pair up in two columns, so a stat block uses the width
  * instead of putting its label and value 600px apart (LD-07); on a phone, and
  * in the narrow infobox column of a desktop, it is one column.
+ *
+ * Where the article shows a craft card, the card is the recipe, and the
+ * group leaves its recipe row out (`hideRecipe`); a group that held nothing
+ * else renders nothing, rather than a heading over an empty box.
  */
 export function StatGroup({
   group,
@@ -35,6 +39,7 @@ export function StatGroup({
   ingredientTargets,
   recipeSources,
   linker,
+  hideRecipe = false,
 }: {
   group: InfoboxGroup;
   lang: Lang;
@@ -43,12 +48,16 @@ export function StatGroup({
   ingredientTargets: Record<string, IngredientTarget>;
   recipeSources: Record<string, string>;
   linker: Linker;
+  /** A craft card shows the recipe: leave the recipe row out. */
+  hideRecipe?: boolean;
 }) {
+  const rows = hideRecipe ? group.rows.filter((row) => !isRecipeLabel(row.label)) : group.rows;
+  if (rows.length === 0) return null;
   return (
     <section className="stat-group">
       {group.label ? <h3 className="label mb-2">{group.label}</h3> : null}
-      <dl className={`stat-list ${group.rows.length > 1 ? 'stat-list-pairs' : ''}`}>
-        {group.rows.map((row, i) => {
+      <dl className={`stat-list ${rows.length > 1 ? 'stat-list-pairs' : ''}`}>
+        {rows.map((row, i) => {
           /*
            * A recipe is the one row whose parts are separately findable
            * things, so it gets pictures and links rather than a value, and

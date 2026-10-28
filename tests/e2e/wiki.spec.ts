@@ -765,7 +765,10 @@ test.describe('installable and offline', () => {
     // The notice is drawn by script, and `next dev` hydrates no page while its
     // hot-reload socket cannot connect: offline, the saved copy stays inert.
     test.skip(devServer, 'next dev does not hydrate a page offline; a build does.');
-    await expect(page.getByRole('status')).toContainText(/Sin conexión/, { timeout: 20_000 });
+    // The banner above the page. The article's own translation status, inside
+    // `<main>`, says "Sin conexión" too once it cannot ask for a translation.
+    const banner = page.getByRole('status').and(page.locator(':not(main *)'));
+    await expect(banner).toContainText(/Sin conexión\. Estás viendo una copia guardada/, { timeout: 20_000 });
   });
 
   /*

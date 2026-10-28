@@ -14,8 +14,9 @@ import { withLang } from '../helpers/lang';
  */
 
 vi.mock('server-only', () => ({}));
+const nav = vi.hoisted(() => ({ pathname: '/wiki' }));
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/wiki',
+  usePathname: () => nav.pathname,
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push() {}, replace() {}, prefetch() {}, refresh() {}, back() {}, forward() {} }),
 }));
@@ -34,13 +35,34 @@ describe('the crafting planner while its gate is shut', () => {
     expect(CRAFT_PLANNER_LIVE).toBe(false);
   });
 
+  /** The bar for a signed-out Spanish reader on `pathname`, parsed. */
+  function bar(pathname = '/wiki') {
+    nav.pathname = pathname;
+    return load(renderToString(withLang('es', createElement(TabBar, { lang: 'es', signedIn: false }))));
+  }
+
   it('keeps the four tabs the reader knows', () => {
-    const $ = load(renderToString(withLang('es', createElement(TabBar, { lang: 'es', signedIn: false }))));
+    const $ = bar();
     const hrefs = $('nav ul > li > a')
       .toArray()
       .map((a) => $(a).attr('href'));
     expect(hrefs).toEqual(['/wiki', '/wiki/browse', '/wiki/guide', '/login?next=/']);
     expect($('a[href="/wiki/craft"]')).toHaveLength(0);
+  });
+
+  it('leaves the nav search the room the planner’s tab will take, from 640px', () => {
+    // Four tabs beside the brand leave the field about 130px at 640px; the
+    // fifth would leave it about 65, which is why it waits for 768px then.
+    const classes = (bar('/wiki/a/iron-sword')('nav form[role="search"]').attr('class') ?? '').split(/\s+/);
+    expect(classes).toContain('sm:block');
+    expect(classes).not.toContain('md:block');
+  });
+
+  it('caps the nav search at 16rem at every width it shows at', () => {
+    // A cap from 768px left it uncapped from 640: about 270px at 767px for a
+    // signed-in reader, whose Chat tab has no padlock to take room from it.
+    const classes = (bar('/wiki/a/iron-sword')('nav form[role="search"]').attr('class') ?? '').split(/\s+/);
+    expect(classes.filter((name) => name.endsWith('max-w-64'))).toEqual(['max-w-64']);
   });
 
   it('offers no shortcut to the planner', () => {

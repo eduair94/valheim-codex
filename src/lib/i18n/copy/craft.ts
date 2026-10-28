@@ -32,11 +32,21 @@ export const CRAFT_COPY = {
 
     craftStationLevel: '{station} · nivel {n}',
     craftByHand: 'A mano',
+    // A building piece the wiki names no station for: pieces are never made by hand.
+    craftWithHammer: 'Con el martillo',
+    // "Usado en"'s group of what no station makes as the wiki states it: a
+    // torch, but also banners and chairs, whose list pages name none.
+    craftNoStation: 'Sin estación indicada',
     // A building piece is placed near its station rather than made at it.
     craftNear: 'Cerca de {station} · nivel {n}',
+    // The same at the station's first level, which the station's name already says.
+    craftNearStation: 'Cerca de {station}',
 
     craftModes: 'Qué mostrar',
     craftModeStep: 'Este nivel',
+    // The same mode where the page shows no levels to pick (a thing with one,
+    // or an infobox without its level tabs), and "this level" means nothing.
+    craftModeRecipe: 'Receta',
     craftModeTotal: 'Del 1 al {n}',
     craftModeRaw: 'Materias primas',
 
@@ -48,6 +58,8 @@ export const CRAFT_COPY = {
     craftStepMore: '{n} más',
     craftYield: 'Rinde ×{n}',
     craftMakes: '{n} en total',
+    // An item's own yield the wiki leaves in doubt: what one craft takes is still exact.
+    craftYieldUnknown: 'La wiki no dice cuántas unidades da cada receta.',
 
     // The totals line. At the first level the item is made, not upgraded.
     craftTotalsNew: 'Necesitás:',
@@ -71,8 +83,17 @@ export const CRAFT_COPY = {
     craftListFull: 'Tu taller está lleno (100 objetos). Quitá algo para sumar más.',
 
     craftUsedIn: 'Usado en',
-    craftUsedInMore: 'Ver {n} más',
-    craftUsedInLevel: 'nivel {n}',
+    // A busy group's toggle, counting the whole group (the heading's count).
+    craftUsedInMore: 'Ver todos ({n})',
+    // A use's toggle once open: `<details>` keeps its summary, so it says what it does now.
+    craftUsedInLess: 'Ver menos',
+    // The material goes into that level of the product, not into making it.
+    craftUsedInLevel: 'Mejora al nivel {n}',
+
+    // How a raw material is had: each way's name is a `craftObtain*` below.
+    craftObtainTitle: 'Cómo se consigue',
+    craftObtainTool: 'con {tool}',
+    craftObtainCoins: '{n} monedas',
 
     craftStationPath: 'Mejoras de la estación',
     craftStationBase: 'La estación sola llega al nivel 1; cada mejora construida cerca suma uno, en cualquier orden.',
@@ -171,10 +192,14 @@ export const CRAFT_COPY = {
 
     craftStationLevel: '{station} · level {n}',
     craftByHand: 'By hand',
+    craftWithHammer: 'With the hammer',
+    craftNoStation: 'No station stated',
     craftNear: 'Near {station} · level {n}',
+    craftNearStation: 'Near {station}',
 
     craftModes: 'Show',
     craftModeStep: 'This level',
+    craftModeRecipe: 'Recipe',
     craftModeTotal: 'Levels 1–{n}',
     craftModeRaw: 'Raw materials',
 
@@ -185,6 +210,7 @@ export const CRAFT_COPY = {
     craftStepMore: '{n} more',
     craftYield: 'Makes ×{n}',
     craftMakes: '{n} in total',
+    craftYieldUnknown: 'The wiki does not say how many one craft makes.',
 
     craftTotalsNew: 'You need:',
     craftTotalsStep: 'To reach level {n}:',
@@ -204,8 +230,13 @@ export const CRAFT_COPY = {
     craftListFull: 'Your list is full (100 items). Remove something to add more.',
 
     craftUsedIn: 'Used in',
-    craftUsedInMore: 'Show {n} more',
-    craftUsedInLevel: 'level {n}',
+    craftUsedInMore: 'Show all ({n})',
+    craftUsedInLess: 'Show fewer',
+    craftUsedInLevel: 'Upgrade to level {n}',
+
+    craftObtainTitle: 'How to get it',
+    craftObtainTool: 'with {tool}',
+    craftObtainCoins: '{n} coins',
 
     craftStationPath: 'Station upgrades',
     craftStationBase: 'The station alone is level 1; each upgrade built nearby adds one, in any order.',

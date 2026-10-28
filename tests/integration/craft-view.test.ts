@@ -6,6 +6,7 @@ import type { GraphItem, GraphRecipe, GraphReport, ItemId, RecipeGraph } from '@
 import { rawQuery, type Db, type DbHandle } from '@/lib/db/create-db';
 import { getRecipeBasis, writeRecipeGraph } from '@/lib/db/recipe-repo';
 import { saveTranslation, upsertArticle } from '@/lib/db/wiki-repo';
+import type { ArticleImage, ArticleInfobox } from '@/lib/wiki/article-types';
 import { slugify } from '@/lib/wiki/slug';
 import { createTestDb } from '../helpers/db';
 
@@ -161,6 +162,49 @@ const ITEMS: GraphItem[] = [
   article('FlametalNew', 'Flametal'),
   article('Torch', 'Torch'),
   article('wood_stack', 'Wood Stack', { kind: 'piece' }),
+  // How raw materials are had, as the assembly writes it: the creatures,
+  // places and traders by the titles of the wiki's pages, one of them in
+  // another letter case than its article's.
+  article('BoneFragments', 'Bone Fragments', {
+    obtain: [
+      { how: 'drop', from: ['Skeleton', 'Rancid remains'] },
+      // The Antler pickaxe is not in this graph either.
+      { how: 'mine', from: ['Stone Grave'], tool: 'PickaxeAntler' },
+    ],
+  }),
+  article('SilverOre', 'Silver Ore', { obtain: [{ how: 'mine', from: ['Silver vein'], tool: 'PickaxeIron' }] }),
+  article('PickaxeIron', 'Iron Pickaxe'),
+  article('Thunderstone', 'Thunder Stone', { obtain: [{ how: 'buy', from: 'Haldor', coins: 50 }] }),
+  article('ArmorLeatherChest', 'Leather Tunic', { maxQuality: 2 }),
+  article('BoltBone', 'Bone Bolt'),
+  // An armor set's pieces, each described by a tab of the set's page, which
+  // has no item of its own: the page's stored infobox, and so its picture, is
+  // its first tab's, the helmet's.
+  {
+    id: 'HelmetLeather',
+    en: 'Leather helmet',
+    es: 'Casco de cuero',
+    slug: 'leather-armor',
+    anchor: 'head',
+    kind: 'item',
+    maxQuality: 2,
+  },
+  { id: 'CapeDeerHide', en: 'Deer hide cape', es: 'Capa de piel de ciervo', slug: 'leather-armor', anchor: 'cape', kind: 'item', maxQuality: 1 },
+  // The first piece of a set whose picture is named otherwise ("Troll_Leather_Helmet.png").
+  { id: 'HelmetTrollLeather', en: 'Troll leather hood', slug: 'troll-set', anchor: 'helmet', kind: 'item', maxQuality: 1 },
+  article('TrollHide', 'Troll Hide'),
+  // A food's cooked form, described by a tab of the raw food's page.
+  article('DeerMeat', 'Deer Meat'),
+  { id: 'CookedDeerMeat', en: 'Cooked deer meat', slug: 'deer-meat', anchor: 'cooked', kind: 'item', maxQuality: 1 },
+  // The same, on a page whose first tab is the cooked form's.
+  article('LoxMeat', 'Lox Meat'),
+  { id: 'CookedLoxMeat', en: 'Cooked lox meat', slug: 'lox-meat', anchor: 'cooked', kind: 'item', maxQuality: 1 },
+  // Described in a section of a page that shows no tabs: a station's.
+  { id: 'piece_smoker', en: 'Smoker', slug: 'cauldron', anchor: 'smoker', kind: 'piece', maxQuality: 1 },
+  // Described in a section of a page, and with an article of its own by the same name.
+  { id: 'Stonerock', en: 'Mysterious Rock', slug: 'early-axes', anchor: 'mysterious-rock', kind: 'item', maxQuality: 1 },
+  // A row of a list page, pictured by another article, whose picture is named after it.
+  { id: 'piece_gift1', en: 'Yuleklapp (small)', slug: 'storage', anchor: 'yuleklapp-small', kind: 'piece', maxQuality: 1 },
 ];
 
 const RECIPES: GraphRecipe[] = [
@@ -199,6 +243,17 @@ const RECIPES: GraphRecipe[] = [
   step('Torch', 1, null, 1, [['Wood', 1], ['Resin', 1]]),
   step('piece_workbench', 1, null, 1, [['Wood', 10]], { method: 'build' }),
   step('wood_stack', 1, null, 1, [['Wood', 50]], { method: 'build' }),
+  // Bone fragments go into a tunic's second level only, and into bolts made twenty at a time.
+  step('ArmorLeatherChest', 1, 'piece_workbench', 1, [['DeerHide', 6]]),
+  step('ArmorLeatherChest', 2, 'piece_workbench', 2, [['DeerHide', 2], ['BoneFragments', 1]]),
+  step('BoltBone', 1, 'piece_workbench', 3, [['Resin', 2], ['BoneFragments', 8]], { yield: 20 }),
+  // The set's pieces, from Troll hide and Deer hide; the cooked meat from the raw.
+  step('HelmetLeather', 1, 'piece_workbench', 1, [['DeerHide', 6]], { from: 'Leather Armor#Head' }),
+  step('HelmetLeather', 2, 'piece_workbench', 2, [['DeerHide', 2]], { from: 'Leather Armor#Head' }),
+  step('CapeDeerHide', 1, 'piece_workbench', 2, [['DeerHide', 4]], { from: 'Leather Armor#Cape' }),
+  step('HelmetTrollLeather', 1, 'piece_workbench', 2, [['TrollHide', 5]], { from: 'Troll Set#Helmet' }),
+  step('CookedDeerMeat', 1, null, 1, [['DeerMeat', 1]], { method: 'cook', from: 'Deer Meat#Cooked' }),
+  step('CookedLoxMeat', 1, null, 1, [['LoxMeat', 1]], { method: 'cook', from: 'Lox Meat#Cooked' }),
 ];
 
 const GRAPH: RecipeGraph = { v: 1, version: 'craft-view-graph', builtAt: '2026-10-27T18:00:00.000Z', items: ITEMS, recipes: RECIPES };
@@ -247,6 +302,50 @@ const TRANSLATED: Record<string, string> = {
   Torch: 'Antorcha (Torch)',
   'Wood Stack': 'Montón de madera (Wood Stack)',
   'Charcoal Kiln': 'Horno de carbón (Charcoal Kiln)',
+  'Bone Fragments': 'Fragmentos de hueso (Bone Fragments)',
+  'Silver Ore': 'Mineral de plata (Silver Ore)',
+  'Iron Pickaxe': 'Pico de hierro (Iron Pickaxe)',
+  'Leather Tunic': 'Túnica de cuero (Leather Tunic)',
+  'Bone Bolt': 'Virote de hueso (Bone Bolt)',
+};
+
+/**
+ * Articles the graph has no item for, which name where its raw materials
+ * are had: a creature with a translation, one without, a trader. The stone
+ * grave and the silver vein have no article at all.
+ */
+const PLACES: Record<string, string | null> = {
+  Skeleton: 'Esqueleto (Skeleton)',
+  'Rancid Remains': null,
+  Haldor: null,
+};
+
+/** A gallery picture, as the ingest stores one: the grid-sized thumbnail. */
+const gallery = (file: string, alt: string) => ({
+  url: `https://static.wikia.nocookie.net/valheim/images/b/b2/${file}/revision/latest/scale-to-width-down/155?cb=20220220`,
+  alt,
+  caption: alt,
+});
+
+/**
+ * Pages whose stored article is more than one item's infobox with its
+ * picture. A page that shows one infobox per tab stores the first tab's
+ * (`variants`): on an armor set, a piece's, titled by the piece; on a food or
+ * a mead, the page's own item's. Its gallery may hold a picture of the whole
+ * set, named after the page.
+ */
+const PAGE_DOCS: Record<string, { infobox?: Partial<ArticleInfobox>; images?: ArticleImage[] }> = {
+  'Leather Armor': {
+    infobox: { title: 'Leather helmet', image: { url: icon('Leather_Helmet.png'), alt: 'Leather helmet' }, variants: ['Head', 'Chest', 'Legs', 'Cape'] },
+    images: [gallery('Leather_Armor.png', 'A complete Leather armor set.'), gallery('Leather_armor_back.jpg', 'From behind.')],
+  },
+  'Troll Set': {
+    infobox: { title: 'Troll leather hood', image: { url: icon('Troll_Leather_Helmet.png'), alt: 'Troll leather helmet' }, variants: ['Helmet', 'Tunic', 'Trousers', 'Cape'] },
+  },
+  'Deer Meat': { infobox: { variants: ['Raw', 'Cooked'] }, images: [gallery('Deer.png', 'Deer')] },
+  'Lox Meat': { infobox: { variants: ['Cooked', 'Raw'] } },
+  'Poison Resistance Mead': { infobox: { variants: ['Mead', 'Mead base'] } },
+  Yuleklapp: { infobox: { image: { url: icon('Yuleklapp_%28small%29.png'), alt: 'Yuleklapp' } } },
 };
 
 let nextPageId = 1;
@@ -256,6 +355,7 @@ async function seedArticle(db: Db, title: string, translated: string | null): Pr
   const pageId = nextPageId++;
   const pageKey = `fandom:${pageId}`;
   const url = `https://valheim.fandom.com/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+  const page = PAGE_DOCS[title];
   await db.execute(sql`
     INSERT INTO pages (key, source, page_id, title, url, revid)
     VALUES (${pageKey}, 'fandom', ${pageId}, ${title}, ${url}, 1)
@@ -270,8 +370,8 @@ async function seedArticle(db: Db, title: string, translated: string | null): Pr
     doc: {
       lead: `${title}.`,
       blocks: [],
-      infobox: { title, image: { url: icon(`${title.replace(/ /g, '_')}.png`), alt: title }, common: [], tabs: [] },
-      images: [],
+      infobox: { title, image: { url: icon(`${title.replace(/ /g, '_')}.png`), alt: title }, common: [], tabs: [], ...page?.infobox },
+      images: page?.images ?? [],
       facets: {},
     },
   });
@@ -312,6 +412,10 @@ describe('the recipe graph as pages read it', () => {
     }
     // An article the graph has nothing for.
     await seedArticle(handle.db, 'Eikthyr', null);
+    // Pages that describe items of the graph but are none of them: an armor
+    // set, and an article named like a thing described on another page.
+    for (const title of ['Leather Armor', 'Troll Set', 'Mysterious Rock', 'Yuleklapp']) await seedArticle(handle.db, title, null);
+    for (const [title, translated] of Object.entries(PLACES)) await seedArticle(handle.db, title, translated);
     await storeGraph(GRAPH);
     state.db = handle.db;
   }, 180_000);
@@ -356,8 +460,53 @@ describe('the recipe graph as pages read it', () => {
     it("keeps the overrides' name for an item described inside another page, never the page's", async () => {
       const base = (await data.getRecipeGraphData())!.items.find((i) => i.id === 'MeadBasePoisonResist')!;
       expect(base.es).toBe('Base de hidromiel: resistencia al veneno');
-      // Nor the page's picture: that is the mead's.
-      expect(base.icon).toBeUndefined();
+    });
+
+    describe('pictures of things described inside another page', () => {
+      const pictureOf = async (id: ItemId) => (await data.getRecipeGraphData())!.items.find((i) => i.id === id)!.icon;
+
+      it("gives the first tab of a set its page's picture, which is that tab's, whatever its file is called", async () => {
+        expect(await pictureOf('HelmetLeather')).toBe('a/a1/Leather_Helmet.png?cb=20210215131319');
+        expect(await pictureOf('HelmetTrollLeather')).toBe('a/a1/Troll_Leather_Helmet.png?cb=20210215131319');
+      });
+
+      it("gives the other pieces of a set the set's own picture, never another piece's", async () => {
+        // The gallery's picture named after the page: the whole set, cape included.
+        expect(await pictureOf('CapeDeerHide')).toBe('b/b2/Leather_Armor.png?cb=20220220');
+      });
+
+      it("gives a food's other form, and a mead's base, the picture of the item the page is about", async () => {
+        // Not the gallery's creature: the page's own infobox, the raw meat's.
+        expect(await pictureOf('CookedDeerMeat')).toBe('a/a1/Deer_Meat.png?cb=20210215131319');
+        expect(await pictureOf('MeadBasePoisonResist')).toBe('a/a1/Poison_Resistance_Mead.png?cb=20210215131319');
+      });
+
+      it('gives a thing with an article of its own by the same name that article\'s picture', async () => {
+        expect(await pictureOf('Stonerock')).toBe('a/a1/Mysterious_Rock.png?cb=20210215131319');
+      });
+
+      it('gives a thing the picture named after it, whichever article holds it', async () => {
+        // The Yuleklapp article's own picture is its small one's.
+        expect(await pictureOf('piece_gift1')).toBe('a/a1/Yuleklapp_%28small%29.png?cb=20210215131319');
+      });
+
+      it('borrows nothing from a page that shows no tabs: its picture is the page\'s own item\'s', async () => {
+        expect(await pictureOf('piece_smoker')).toBeUndefined();
+      });
+
+      it("never shows another thing in the picture of the page it is on", async () => {
+        // On the mead's own page its base is no bottle of mead...
+        const mead = (await data.getCraftView('poison-resistance-mead', 'es'))!;
+        expect(mead.recipes[0]!.inputs[0]).toMatchObject({ id: 'MeadBasePoisonResist', icon: null });
+        expect(decodeGraph(mead.closure).items.find((i) => i.id === 'MeadBasePoisonResist')!.icon).toBeUndefined();
+        // ...nor the cooked meat raw meat on the raw meat's page.
+        const meat = (await data.getCraftView('deer-meat', 'es'))!;
+        expect(meat.usedIn.flatMap((g) => g.items).find((u) => u.id === 'CookedDeerMeat')).toMatchObject({ icon: null });
+        expect(meat.item.icon).toBe('a/a1/Deer_Meat.png?cb=20210215131319');
+        // Anywhere else they keep it.
+        const honey = (await data.getCraftView('honey', 'es'))!;
+        expect(honey.usedIn[0]!.items[0]).toMatchObject({ id: 'MeadBasePoisonResist', icon: 'a/a1/Poison_Resistance_Mead.png?cb=20210215131319' });
+      });
     });
 
     it('changes names only: the items and recipes are the graph as it was built', async () => {
@@ -553,6 +702,33 @@ describe('the recipe graph as pages read it', () => {
       expect(scrap.usedIn).toEqual([{ station: expect.objectContaining({ id: 'smelter' }), items: [expect.objectContaining({ id: 'Copper', qty: 1 })] }]);
     });
 
+    it("orders a station's uses as its menu does: what it crafts, by the level it needs, then what is built near it", async () => {
+      const hide = (await data.getCraftView('deer-hide', 'es'))!;
+      expect(hide.usedIn.map((g) => [g.station?.name, g.items.map((i) => `${i.name}:${i.method}:${i.stationLevel}`)])).toEqual([
+        ['Banco de trabajo', ['Casco de cuero:craft:1', 'Túnica de cuero:craft:1', 'Capa de piel de ciervo:craft:2', 'Karve:build:1']],
+      ]);
+    });
+
+    it("says of each use whether its article opens on it, and so shows the levels a link can name", async () => {
+      const opens = async (slug: string) =>
+        Object.fromEntries((await data.getCraftView(slug, 'en'))!.usedIn.flatMap((g) => g.items.map((i) => [i.id, i.ownPage])));
+      expect(await opens('deer-hide')).toEqual({
+        // A set's page opens on its first tab's piece, whose levels its infobox shows...
+        HelmetLeather: true,
+        // ...and an article of its own on its own item...
+        ArmorLeatherChest: true,
+        Karve: true,
+        // ...but another piece of the set is described on a page whose levels are the helmet's.
+        CapeDeerHide: false,
+      });
+      expect(await opens('troll-hide')).toEqual({ HelmetTrollLeather: true });
+      // A page with an item of its own opens on that item, whatever its tabs:
+      // the raw meat, though the cooked form's tab comes first.
+      expect(await opens('deer-meat')).toEqual({ CookedDeerMeat: false });
+      expect(await opens('lox-meat')).toEqual({ CookedLoxMeat: false });
+      expect((await data.getCraftView('lox-meat', 'en'))!.item.id).toBe('LoxMeat');
+    });
+
     it('lists what is made by hand last, however much of it there is', async () => {
       const wood = (await data.getCraftView('wood', 'es'))!;
       expect(wood.usedIn.map((g) => [g.station?.name ?? null, g.items.map((i) => i.name)])).toEqual([
@@ -561,6 +737,135 @@ describe('the recipe graph as pages read it', () => {
         // Three things, more than the Forge's two, and still after every station.
         [null, ['Antorcha', 'Banco de trabajo', 'Montón de madera']],
       ]);
+    });
+
+    it('gives each use the whole step it goes into, the material first and the rest as the wiki lists them', async () => {
+      const view = (await data.getCraftView('bone-fragments', 'es'))!;
+      const workbench = {
+        id: 'piece_workbench',
+        name: 'Banco de trabajo',
+        en: 'Workbench',
+        slug: 'workbench',
+        anchor: null,
+        icon: 'a/a1/Workbench.png?cb=20210215131319',
+      };
+      const bones = { id: 'BoneFragments', name: 'Fragmentos de hueso', en: 'Bone Fragments', slug: 'bone-fragments', anchor: null };
+
+      expect(view.usedIn).toEqual([
+        {
+          station: workbench,
+          items: [
+            {
+              id: 'ArmorLeatherChest',
+              name: 'Túnica de cuero',
+              en: 'Leather Tunic',
+              slug: 'leather-tunic',
+              anchor: null,
+              icon: 'a/a1/Leather_Tunic.png?cb=20210215131319',
+              // The tunic's second level, an upgrade: making it new takes no bone.
+              quality: 2,
+              qty: 1,
+              method: 'craft',
+              station: workbench,
+              stationLevel: 2,
+              yield: 1,
+              yieldKnown: true,
+              // Its own article, which a link can open at that level.
+              ownPage: true,
+              inputs: [
+                expect.objectContaining({ ...bones, qty: 1 }),
+                expect.objectContaining({ id: 'DeerHide', name: 'Cuero de ciervo', en: 'Deer Hide', qty: 2 }),
+              ],
+            },
+            expect.objectContaining({
+              id: 'BoltBone',
+              name: 'Virote de hueso',
+              quality: 1,
+              qty: 8,
+              stationLevel: 3,
+              // Twenty bolts a craft: a card says so.
+              yield: 20,
+              yieldKnown: true,
+              // The wiki lists the resin first; the bones lead here, being the page's own material.
+              inputs: [expect.objectContaining({ ...bones, qty: 8 }), expect.objectContaining({ id: 'Resin', name: 'Resin', qty: 2 })],
+            }),
+          ],
+        },
+      ]);
+    });
+
+    it('carries the same step on every use, alternatives and station levels included', async () => {
+      const scrap = (await data.getCraftView('copper-scrap', 'en'))!;
+      // Copper from scrap is the alternative: it is still where scrap goes.
+      expect(scrap.usedIn[0]!.items[0]).toMatchObject({
+        id: 'Copper',
+        method: 'smelt',
+        station: expect.objectContaining({ id: 'smelter', name: 'Smelter' }),
+        stationLevel: 1,
+        inputs: [expect.objectContaining({ id: 'CopperScrap', name: 'Copper Scrap', qty: 1 })],
+      });
+
+      const wood = (await data.getCraftView('wood', 'es'))!;
+      const sword = wood.usedIn.flatMap((g) => g.items).find((i) => i.id === 'SwordIron')!;
+      // The first step that takes wood: making the sword, at a level 2 Forge.
+      expect(sword).toMatchObject({ quality: 1, qty: 2, stationLevel: 2, station: expect.objectContaining({ name: 'Forja' }) });
+      expect(sword.inputs.map((i) => `${i.name}:${i.qty}`)).toEqual(['Madera:2', 'Hierro:20', 'Recortes de cuero:3']);
+      // What is made by hand has no station on its uses either.
+      const torch = wood.usedIn.at(-1)!.items.find((i) => i.id === 'Torch')!;
+      expect(torch).toMatchObject({ station: null, stationLevel: 1, inputs: [expect.objectContaining({ id: 'Wood' }), expect.objectContaining({ id: 'Resin' })] });
+    });
+
+    it('says how a raw material is had, naming creatures and places as their articles do', async () => {
+      const view = (await data.getCraftView('bone-fragments', 'es'))!;
+      expect(view.obtain).toEqual([
+        {
+          how: 'drop',
+          from: [
+            { name: 'Esqueleto', en: 'Skeleton', slug: 'skeleton', icon: 'a/a1/Skeleton.png?cb=20210215131319' },
+            // Found in another letter case; with no translation, the English name.
+            { name: 'Rancid remains', en: 'Rancid remains', slug: 'rancid-remains', icon: 'a/a1/Rancid_Remains.png?cb=20210215131319' },
+          ],
+          tool: null,
+        },
+        // No article for the grave, and a tool the graph has no item for: both shown as far as they are known, no id.
+        { how: 'mine', from: [{ name: 'Stone Grave', en: 'Stone Grave', slug: null, icon: null }], tool: null },
+      ]);
+
+      const english = (await data.getCraftView('bone-fragments', 'en'))!;
+      expect(english.obtain[0]).toMatchObject({ from: [expect.objectContaining({ name: 'Skeleton', slug: 'skeleton' }), expect.anything()] });
+    });
+
+    it('names the tool a material needs, where the graph knows it', async () => {
+      const view = (await data.getCraftView('silver-ore', 'es'))!;
+      expect(view.obtain).toEqual([
+        {
+          how: 'mine',
+          from: [{ name: 'Silver vein', en: 'Silver vein', slug: null, icon: null }],
+          tool: {
+            id: 'PickaxeIron',
+            name: 'Pico de hierro',
+            en: 'Iron Pickaxe',
+            slug: 'iron-pickaxe',
+            anchor: null,
+            icon: 'a/a1/Iron_Pickaxe.png?cb=20210215131319',
+          },
+        },
+      ]);
+    });
+
+    it('names the trader a material is bought from, and its price', async () => {
+      const view = (await data.getCraftView('thunder-stone', 'en'))!;
+      expect(view.obtain).toEqual([
+        { how: 'buy', from: { name: 'Haldor', en: 'Haldor', slug: 'haldor', icon: 'a/a1/Haldor.png?cb=20210215131319' }, coins: 50 },
+      ]);
+      // Bought, and used in nothing here.
+      expect(view.usedIn).toEqual([]);
+      expect(view.recipes).toEqual([]);
+    });
+
+    it('says nothing of how a thing that is made is had', async () => {
+      expect((await data.getCraftView('iron-sword', 'es'))!.obtain).toEqual([]);
+      expect((await data.getCraftView('bronze', 'es'))!.obtain).toEqual([]);
     });
 
     it("gives the Cauldron's six levels and its five extensions with their materials", async () => {
@@ -618,6 +923,18 @@ describe('the recipe graph as pages read it', () => {
       expect(await data.getCraftView('no-such-article', 'es')).toBeNull();
       expect(await data.getCraftView('eikthyr', 'es')).toBeNull();
       expect(await data.getCraftView('poison-resistance-mead', 'es', 'no-such-tab')).toBeNull();
+    });
+
+    it("gives a set's page, which has no item of its own, the piece its infobox shows: its first tab's", async () => {
+      const set = (await data.getCraftView('leather-armor', 'es'))!;
+      expect(set.item).toMatchObject({ id: 'HelmetLeather', name: 'Casco de cuero', anchor: 'head', maxQuality: 2 });
+      expect(set.recipes.map((r) => [r.quality, r.inputs.map((i) => `${i.id}:${i.qty}`)])).toEqual([
+        [1, ['DeerHide:6']],
+        [2, ['DeerHide:2']],
+      ]);
+      expect((await data.getCraftView('troll-set', 'en'))!.item).toMatchObject({ id: 'HelmetTrollLeather', name: 'Troll leather hood' });
+      // A page with an item of its own is that item's, whatever its tabs.
+      expect((await data.getCraftView('deer-meat', 'es'))!.item.id).toBe('DeerMeat');
     });
   });
 
@@ -679,6 +996,17 @@ describe('the recipe graph as pages read it', () => {
       expect(await honey()).toBe('Miel');
       const base = (await data.getCraftView('poison-resistance-mead', 'es', 'mead-base'))!;
       expect(base.recipes[0]!.inputs[0]).toMatchObject({ id: 'Honey', name: 'Miel', en: 'Honey' });
+    });
+
+    it('names a place a material comes from by a translation saved since, on the next refill', async () => {
+      const remains = async () => (await data.getCraftView('bone-fragments', 'es'))!.obtain[0];
+      expect(await remains()).toMatchObject({ from: [expect.anything(), expect.objectContaining({ name: 'Rancid remains' })] });
+
+      await translate(handle.db, 'Rancid Remains', 'Restos rancios (Rancid Remains)');
+
+      expect(await remains()).toMatchObject({
+        from: [expect.anything(), { name: 'Restos rancios', en: 'Rancid remains', slug: 'rancid-remains', icon: expect.any(String) }],
+      });
     });
   });
 });

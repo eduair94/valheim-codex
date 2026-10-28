@@ -106,6 +106,16 @@ export function starCount(label: string): number | null {
 }
 
 /**
+ * The upgrade levels a set of tabs stands for, as numbers, or null when the
+ * tabs are not levels. Only levels are the article's one selected level
+ * (`LevelProvider`), which the craft card follows and `#level-4` names; a
+ * creature's star levels and an item's variants keep a switcher of their own.
+ */
+export function levelQualities(labels: readonly string[]): number[] | null {
+  return tabSetKind(labels) === 'levels' ? labels.map((label) => Number(label.trim())) : null;
+}
+
+/**
  * How the article sits on a wide screen (1024px and up).
  *
  * - `single`: no infobox; the text has the whole width.
@@ -132,11 +142,38 @@ function proseUnits(text: string): number {
   return lines * LINE_UNITS + 0.4;
 }
 
-/** The infobox as shown on first view: the common rows and the first tab's. */
-export function infoboxUnits(infobox: ArticleInfobox): number {
+/**
+ * The groups without their recipe rows, and without a group left with no
+ * row, for an infobox whose craft card shows the recipe instead: the card
+ * replaces the row, and a group that held only the recipe would be a heading
+ * over nothing.
+ */
+export function withoutRecipes(groups: readonly InfoboxGroup[]): InfoboxGroup[] {
+  return groups
+    .map((group) => ({ label: group.label, rows: group.rows.filter((row) => !isRecipeLabel(row.label)) }))
+    .filter((group) => group.rows.length > 0);
+}
+
+/**
+ * A craft card's own height, in stat rows: its head, switch and stepper, and
+ * a line per tile of its widest recipe, since the infobox's column, where
+ * the card stands beside the text, gives its tiles one column.
+ */
+function cardUnits(inputs: number): number {
+  return 4 + inputs * 1.6;
+}
+
+/**
+ * The infobox as shown on first view: the common rows and the first tab's.
+ * `craftInputs`, when the article shows a craft card, is the most materials
+ * any of its recipes takes: the card counts in place of the recipe rows,
+ * which it hides.
+ */
+export function infoboxUnits(infobox: ArticleInfobox, craftInputs?: number): number {
   const tabs = usefulTabs(infobox.tabs);
-  const groups = mergeGroups([...infobox.common, ...(tabs[0]?.groups ?? [])]);
-  let units = tabs.length > 1 ? 3 : 0;
+  const shown = mergeGroups([...infobox.common, ...(tabs[0]?.groups ?? [])]);
+  const groups = craftInputs === undefined ? shown : withoutRecipes(shown);
+  let units = (tabs.length > 1 ? 3 : 0) + (craftInputs === undefined ? 0 : cardUnits(craftInputs));
   for (const group of groups) {
     units += group.label ? 1.5 : 0.5;
     for (const row of group.rows) {
@@ -174,9 +211,10 @@ const SMALL_INFOBOX = 24;
 /** The infobox spreads out once it is this much taller than the text beside it. */
 const SPREAD_RATIO = 1.5;
 
-export function articleLayout(doc: ArticleDoc, infobox: ArticleInfobox | null): ArticleLayout {
+/** `craftInputs` as `infoboxUnits` takes it: set when the infobox shows a craft card. */
+export function articleLayout(doc: ArticleDoc, infobox: ArticleInfobox | null, craftInputs?: number): ArticleLayout {
   if (!infobox) return 'single';
-  const aside = infoboxUnits(infobox);
+  const aside = infoboxUnits(infobox, craftInputs);
   if (aside <= SMALL_INFOBOX) return 'side';
   return aside > bodyUnits(doc) * SPREAD_RATIO ? 'spread' : 'side';
 }

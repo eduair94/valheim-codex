@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RetryError } from 'ai';
+import { APICallError, RetryError } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
 import {
   applyMemory,
   applyStrings,
   captionsOf,
   createPacer,
+  createSilence,
   deriveMemory,
+  estimateTokens,
   extractStrings,
   isIdentifierRow,
   isPublishable,
+  maxReplyTokens,
   mergeTranslations,
   overlayCaptions,
   planArticle,
@@ -20,8 +24,9 @@ import {
 } from '@/lib/wiki/translate';
 import type { ArticleDoc } from '@/lib/wiki/article-types';
 import { canRequestTranslation, translationBuckets } from '@/lib/wiki/translate-policy';
+import { isTripped, resetCircuits } from '@/lib/rag/circuit';
 import type * as Provider from '@/lib/rag/provider';
-import { garbage, mockTranslator, refusal, spanish, unavailable } from '../helpers/mock-translator';
+import { garbage, mockTranslator, promptStrings, refusal, spanish, unavailable } from '../helpers/mock-translator';
 
 // Every test passes its own mock chain. One that forgets gets a chain that
 // cannot answer (the run ends as if every provider refused), never the real
@@ -43,6 +48,49 @@ vi.mock('@/lib/rag/provider', async (original) => ({
  * silently smaller article, and that has to be impossible by construction
  * rather than unlikely in practice.
  */
+
+/**
+ * A clock on which workers running at once interleave as they would in real
+ * time: `sleep` parks a worker until its time comes, and `drive` lets every
+ * worker run until all of them are parked, then moves time on to the
+ * earliest wake-up. A clock that jumps forward whenever anyone sleeps lets a
+ * worker parked for its turn overtake one still waiting on a provider.
+ */
+function eventClock(start = 1_000_000) {
+  let time = start;
+  let seq = 0;
+  const timers: { at: number; seq: number; wake: () => void }[] = [];
+  return {
+    now: () => time,
+    /** Milliseconds since the clock started. */
+    elapsed: () => time - start,
+    sleep: (ms: number) =>
+      new Promise<void>((wake) => {
+        timers.push({ at: time + Math.max(0, ms), seq: seq++, wake });
+      }),
+    async drive<T>(work: Promise<T>): Promise<T> {
+      let settled = false;
+      work.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+      for (let step = 0; step < 10_000; step++) {
+        for (let i = 0; i < 30; i++) await new Promise((resolve) => setImmediate(resolve));
+        if (settled) return work;
+        if (timers.length === 0) {
+          // Only a real timer is pending: a provider's own deadline.
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          continue;
+        }
+        timers.sort((a, b) => a.at - b.at || a.seq - b.seq);
+        const next = timers.shift()!;
+        time = Math.max(time, next.at);
+        next.wake();
+      }
+      throw new Error('the clock ran too many steps');
+    },
+  };
+}
 
 const doc: ArticleDoc = {
   lead: 'The iron sword is the second sword.',
@@ -348,8 +396,8 @@ describe('translating in batches', () => {
     expect(run.translations).toEqual(es(strings.slice(0, 4)));
   });
 
-  it('stops at the first request every provider refuses, keeping what came before', async () => {
-    const mock = mockTranslator((batch, call) => (call === 0 ? spanish(batch, call) : refusal(429)));
+  it('stops at the first request every provider refuses for the day, keeping what came before', async () => {
+    const mock = mockTranslator((batch, call) => (call === 0 ? spanish(batch, call) : refusal(402)));
     const run = await translateStrings(strings, 'es', { batchSize: 4, candidates: mock.candidates });
 
     // No third batch, and the refused one is not halved: the budget is gone.
@@ -358,6 +406,15 @@ describe('translating in batches', () => {
     expect(run.translations.slice(0, 4)).toEqual(es(strings.slice(0, 4)));
     expect(run.skipped).toBe(6);
     expect(run.failed).toBe(0);
+  });
+
+  it('ends at the first request every provider rate-limits when it cannot wait, without calling the budget spent', async () => {
+    const mock = mockTranslator((batch, call) => (call === 0 ? spanish(batch, call) : refusal(429)));
+    const run = await translateStrings(strings, 'es', { batchSize: 4, candidates: mock.candidates });
+
+    // A limit that outlasted the providers' own waits refuses the next request too, a moment later.
+    expect(mock.calls).toHaveLength(2);
+    expect(run).toMatchObject({ exhausted: false, unavailable: true, rateLimited: true, skipped: 6, failed: 0 });
   });
 
   it('treats a chain with no provider configured as spent', async () => {
@@ -580,7 +637,9 @@ describe('when no provider answers: an outage, not the text (IT-2)', () => {
 
     expect(mock.calls.map((c) => c.length)).toEqual([4, 4]);
     expect(run).toMatchObject({ failed: 0, failedIndexes: [], skipped: 12, exhausted: false, unavailable: true });
-    expect(run).toMatchObject({ requests: 2, answered: 0 });
+    // No answer, as against a rate limit: the operator is told which. And
+    // the run stopped for it, which a caller does not ask again on the spot.
+    expect(run).toMatchObject({ requests: 2, answered: 0, rateLimited: false, outage: true });
   });
 
   it('is not every provider refusing when one refuses and another is down', async () => {
@@ -598,14 +657,15 @@ describe('when no provider answers: an outage, not the text (IT-2)', () => {
 
     expect(mock.calls).toHaveLength(3);
     expect(run.translations.slice(4)).toEqual(strings.slice(4).map((s) => `ES:${s}`));
-    expect(run).toMatchObject({ failed: 0, skipped: 4, unavailable: false, answered: 2 });
+    expect(run).toMatchObject({ failed: 0, skipped: 4, unavailable: false, answered: 2, outage: false });
   });
 
   it('counts a reply that is not the list asked for, and one of the wrong length, as answered', async () => {
     const mock = mockTranslator((batch, call) => (call === 0 ? garbage() : spanish(batch.slice(1), call)));
     const run = await translateStrings(strings.slice(0, 2), 'es', { batchSize: 2, candidates: mock.candidates });
-    // The unparseable reply is halved; each half comes back one short.
-    expect(mock.calls.map((c) => c.length)).toEqual([2, 1, 1]);
+    // The unparseable reply is asked for once more and comes back one short;
+    // halved, so does each half.
+    expect(mock.calls.map((c) => c.length)).toEqual([2, 2, 1, 1]);
     expect(run).toMatchObject({ failed: 2, answered: 3, unavailable: false });
   });
 
@@ -644,6 +704,737 @@ describe('when no provider answers: an outage, not the text (IT-2)', () => {
     expect(result).toMatchObject({ translated: 0, failed: 0, unavailable: true, answered: 0, exhausted: false });
     // Two fresh batches tried; the string that failed before was not sent after them.
     expect(mock.calls.flat()).not.toContain('Primary attack is a 3-hit combo.');
+  });
+});
+
+/*
+ * The production run of 2026-10-28, with one provider able to answer: Groq,
+ * at 8,000 tokens a minute. Every other provider was out of credit (xAI,
+ * Cerebras, OpenRouter) or out of its day (Gemini). The run stopped after its
+ * fourth article on a Groq refusal that said "try again in 510ms", and it had
+ * already lost three batches to Groq replies that failed its JSON check.
+ */
+describe('rate limits, daily quotas and bad replies', () => {
+  beforeEach(() => {
+    resetCircuits();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const strings = Array.from({ length: 8 }, (_, i) => `String number ${i}`);
+  const es = (list: string[]) => list.map((s) => `ES:${s}`);
+  const GROQ = 'groq/openai/gpt-oss-120b';
+
+  function refused(status: number, message: string): APICallError {
+    return new APICallError({
+      message,
+      url: 'https://provider.test/v1/chat/completions',
+      requestBodyValues: {},
+      statusCode: status,
+      isRetryable: false,
+    });
+  }
+  const groqLimit = (per: 'minute' | 'day', wait: string) =>
+    refused(
+      429,
+      'Rate limit reached for model `openai/gpt-oss-120b` in organization `org_test` service tier `on_demand` on ' +
+        `tokens per ${per} (${per === 'day' ? 'TPD' : 'TPM'}): Limit 8000, Used 6176, Requested 1892. ` +
+        `Please try again in ${wait}.`,
+    );
+  const GEMINI_DAY = refused(
+    429,
+    'You exceeded your current quota.\n* Quota exceeded for metric: generativelanguage.googleapis.com/' +
+      'generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash-lite, description: Generate content ' +
+      'requests per day limit exceeded on Free Tier.',
+  );
+  const badJson = () => refused(400, "Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.");
+  /** Groq's 413, for a request larger than its whole minute's budget. */
+  const tooLarge = () =>
+    refused(
+      413,
+      'Request too large for model `openai/gpt-oss-120b` in organization `org_test` service tier `on_demand` on ' +
+        'tokens per minute (TPM): Limit 8000, Requested 9311, please reduce your message size and try again.',
+    );
+  /** A provider that never answers until its deadline aborts it. */
+  const hang = (signal?: AbortSignal) =>
+    new Promise<string[]>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason));
+    });
+
+  /** A clock that only moves when the translator waits on it. */
+  function fakeClock() {
+    let time = 1_000_000;
+    const waits: number[] = [];
+    return {
+      now: () => time,
+      sleep: async (ms: number) => {
+        waits.push(ms);
+        time += ms;
+      },
+      waits,
+    };
+  }
+
+  it('asks every provider for a reply ceiling sized to the batch, never the model’s maximum', async () => {
+    const seen: { strings: number; ceiling: number | undefined }[] = [];
+    const model = new MockLanguageModelV3({
+      doGenerate: async (options) => {
+        const batch = promptStrings(options.prompt);
+        seen.push({ strings: batch.length, ceiling: options.maxOutputTokens });
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ translations: es(batch) }) }],
+          finishReason: { unified: 'stop', raw: undefined },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 10, text: 10, reasoning: 0 },
+          },
+          warnings: [],
+        };
+      },
+    });
+    const long = Array.from({ length: 40 }, (_, i) => `${'A sentence of the article, long enough to count. '.repeat(2)}${i}`);
+    await translateStrings([...long, 'Short'], 'es', { candidates: () => [{ name: 'mock/ceiling', model }] });
+
+    expect(seen.map((s) => s.strings)).toEqual([40, 1]);
+    expect(seen.map((s) => s.ceiling)).toEqual([maxReplyTokens(long), maxReplyTokens(['Short'])]);
+  });
+
+  it('sizes that ceiling above the longest reply measured, with room to reason, and far under 65,536', () => {
+    // The longest reply in the corpus's memories: "flax", 40 strings, 1,712 characters, a 2,178-character reply.
+    const flax = Array.from({ length: 40 }, (_, i) => 'x'.repeat(i < 32 ? 43 : 42));
+    expect(flax.join('')).toHaveLength(1_712);
+    const replyTokens = Math.ceil(2_178 / 3);
+    expect(maxReplyTokens(flax)).toBeGreaterThan(replyTokens + 2_000);
+    expect(maxReplyTokens(['Short'])).toBeLessThan(maxReplyTokens(flax));
+    expect(maxReplyTokens(['A changelog entry far longer than any other. '.repeat(400)])).toBeLessThanOrEqual(8_192);
+  });
+
+  it('waits out a short rate limit on the same provider, instead of asking providers that refuse', async () => {
+    const clock = fakeClock();
+    const groq = mockTranslator((batch, call) => (call === 0 ? groqLimit('minute', '510ms') : spanish(batch, call)), GROQ);
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      candidates: () => [groq.candidate, broke.candidate],
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(run.translations).toEqual(es(strings));
+    expect(groq.calls).toHaveLength(2);
+    expect(broke.calls).toHaveLength(0);
+    expect(clock.waits).toEqual([510]);
+    expect(run).toMatchObject({ exhausted: false, unavailable: false, failed: 0 });
+  });
+
+  it('stops at once, as spent, when every provider is out of credit or out of its day', async () => {
+    const clock = fakeClock();
+    const gemini = mockTranslator(() => GEMINI_DAY, 'google/gemini-2.5-flash-lite');
+    const groq = mockTranslator(() => groqLimit('day', '12m37.248s'), GROQ);
+    const openrouter = mockTranslator(() => refusal(402), 'openrouter/x-ai/grok-4.3');
+    const run = await translateStrings(strings, 'es', {
+      batchSize: 4,
+      candidates: () => [gemini.candidate, groq.candidate, openrouter.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(groq.calls).toHaveLength(1);
+    expect(clock.waits).toEqual([]);
+    expect(run).toMatchObject({ exhausted: true, skipped: 8, failed: 0 });
+  });
+
+  it('waits for a limit the provider could not wait out in time, then asks again for the same strings', async () => {
+    // 45 seconds of a 60-second deadline leave too little to answer in: the
+    // chain moves on, every other provider refuses, and the run waits instead
+    // — a minute, the window a per-minute limit counts in, or longer if told.
+    const clock = fakeClock();
+    const groq = mockTranslator((batch, call) => (call === 0 ? groqLimit('minute', '45s') : spanish(batch, call)), GROQ);
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(groq.calls).toEqual([strings, strings]);
+    expect(clock.waits).toEqual([60_000]);
+    expect(run.translations).toEqual(es(strings));
+    expect(run).toMatchObject({ exhausted: false, unavailable: false, failed: 0 });
+
+    const later = fakeClock();
+    const slow = mockTranslator((batch, call) => (call === 0 ? groqLimit('minute', '1m30s') : spanish(batch, call)), GROQ);
+    await translateStrings(strings, 'es', {
+      candidates: () => [slow.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: later.now,
+      sleep: later.sleep,
+    });
+    expect(later.waits).toEqual([90_000]);
+  });
+
+  it('stops after two requests in a row no provider answered, the second asked after a real wait', async () => {
+    const clock = fakeClock();
+    const down = mockTranslator(() => unavailable(503));
+    const run = await translateStrings(strings, 'es', {
+      batchSize: 4,
+      candidates: down.candidates,
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    // The same four strings, asked again a minute later; the next four never.
+    expect(down.calls).toEqual([strings.slice(0, 4), strings.slice(0, 4)]);
+    expect(clock.waits).toEqual([60_000]);
+    expect(run).toMatchObject({ unavailable: true, exhausted: false, failed: 0, skipped: 8, answered: 0 });
+  });
+
+  it('asks once more after a reply that fails validation, then halves the batch: a bad reply, not a dead provider', async () => {
+    const groq = mockTranslator(() => badJson(), GROQ);
+    const run = await translateStrings(strings.slice(0, 4), 'es', { batchSize: 4, candidates: groq.candidates });
+
+    // Each request twice on the same provider: the batch, then each half.
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 4, 2, 2, 2, 2]);
+    expect(run).toMatchObject({ failed: 4, exhausted: false, unavailable: false, answered: 3 });
+    expect(isTripped(GROQ)).toBe(false);
+  });
+
+  it('keeps the second reply when the first failed validation', async () => {
+    const groq = mockTranslator((batch, call) => (call === 0 ? badJson() : spanish(batch, call)), GROQ);
+    const run = await translateStrings(strings, 'es', { candidates: groq.candidates });
+    expect(groq.calls).toHaveLength(2);
+    expect(run.translations).toEqual(es(strings));
+  });
+
+  it('halves a batch too large for a provider’s per-minute budget, holding nothing against it', async () => {
+    const groq = mockTranslator((batch, call) => (batch.length > 2 ? tooLarge() : spanish(batch, call)), GROQ);
+    const run = await translateStrings(strings.slice(0, 4), 'es', { batchSize: 4, candidates: groq.candidates });
+
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 2]);
+    expect(run.translations).toEqual(es(strings.slice(0, 4)));
+    expect(run).toMatchObject({ failed: 0, unavailable: false });
+  });
+
+  it('keeps halving a batch too large for the minute down to strings that fit, since saying so costs nothing', async () => {
+    const groq = mockTranslator((batch, call) => (batch.length > 1 ? tooLarge() : spanish(batch, call)), GROQ);
+    const run = await translateStrings(strings.slice(0, 4), 'es', { batchSize: 4, candidates: groq.candidates });
+
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 1, 1, 2, 1, 1]);
+    expect(run.translations).toEqual(es(strings.slice(0, 4)));
+    expect(run).toMatchObject({ failed: 0, unavailable: false });
+
+    // One string too large on its own will not fit on any later call either.
+    const alone = await translateStrings(['A changelog entry far too long. '.repeat(300)], 'es', {
+      candidates: mockTranslator(() => tooLarge(), GROQ).candidates,
+    });
+    expect(alone).toMatchObject({ failed: 1, failedIndexes: [0] });
+  });
+
+  it('holds nothing against a long string whose provider spent its deadline partly waiting out a rate limit', async () => {
+    // The endpoint gives a provider 25 seconds, and may spend two thirds of
+    // them waiting as it is told: what is left says nothing about the text.
+    const long = 'The Mistlands is a biome shrouded in thick fog. '.repeat(50).trim();
+    const groq = () =>
+      mockTranslator((_batch, call, signal) => (call === 0 ? groqLimit('minute', '150ms') : hang(signal)), GROQ);
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+
+    const first = groq();
+    const run = await translateStrings([long], 'es', {
+      candidates: () => [first.candidate, broke.candidate],
+      requestTimeoutMs: 300,
+    });
+    expect(first.calls).toHaveLength(2);
+    expect(run).toMatchObject({ failed: 0, failedIndexes: [], unavailable: true, exhausted: false });
+
+    const second = groq();
+    const article = await translateArticle({
+      doc: { lead: '', blocks: [{ kind: 'paragraph', section: '', text: long }], infobox: null, images: [], facets: {} },
+      title: 'Mistlands',
+      lang: 'es',
+      memory: new Map([['Mistlands', 'Tierras brumosas']]),
+      candidates: () => [second.candidate, broke.candidate],
+      requestTimeoutMs: 300,
+    });
+    expect(article.failures.size).toBe(0);
+  });
+
+  it('holds nothing against a long string when its only provider waited out a rate limit, then ran out of time', async () => {
+    // Alone in its chain, a provider used to get the SDK's own retries, which
+    // sat out the refusal where the chain could not see it: the timeout that
+    // followed read as the string being too long to write.
+    const long = 'The Mistlands is a biome shrouded in thick fog. '.repeat(50).trim();
+    const retryable = () =>
+      new APICallError({
+        message: groqLimit('minute', '150ms').message,
+        url: 'https://provider.test/v1/chat/completions',
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      });
+    const groq = mockTranslator((_batch, call, signal) => (call === 0 ? retryable() : hang(signal)), GROQ);
+    const run = await translateStrings([long], 'es', { candidates: groq.candidates, requestTimeoutMs: 600 });
+
+    expect(groq.calls).toHaveLength(2);
+    expect(run).toMatchObject({ failed: 0, failedIndexes: [], unavailable: true, rateLimited: false });
+  });
+
+  it('counts a deadline missed after a wait as no answer, never as a refusal that ends the run on the spot', async () => {
+    // A run a reader is waiting on stops at the first request every provider
+    // refuses. A provider that waited as it was told, and then ran out of
+    // time, refused nothing: the next batch is still asked.
+    const groq = mockTranslator(
+      (batch, call, signal) => (call === 0 ? groqLimit('minute', '150ms') : call === 1 ? hang(signal) : spanish(batch, call)),
+      GROQ,
+    );
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      batchSize: 4,
+      candidates: () => [groq.candidate, broke.candidate],
+      requestTimeoutMs: 300,
+    });
+
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 4, 4]);
+    expect(run.translations.slice(4)).toEqual(es(strings.slice(4)));
+    expect(run).toMatchObject({ failed: 0, skipped: 4, unavailable: false, rateLimited: false });
+  });
+
+  it('waits before sending the halves of a long batch that ran out of time, in a run that can wait', async () => {
+    // A timeout on enough text to explain it is halved, and it is still a
+    // request nobody answered: its halves go out after the run's wait, so a
+    // refusal of the first one is not a second request on the heels of the first.
+    const clock = fakeClock();
+    const long = Array.from({ length: 4 }, (_, i) => `${'Patch notes entry. '.repeat(40)}${i}`);
+    const groq = mockTranslator((batch, call, signal) => (call === 0 ? hang(signal) : spanish(batch, call)), GROQ);
+    const run = await translateStrings(long, 'es', {
+      candidates: groq.candidates,
+      requestTimeoutMs: 20,
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 2]);
+    expect(clock.waits).toEqual([60_000]);
+    expect(run.translations).toEqual(es(long));
+    expect(run).toMatchObject({ failed: 0, unavailable: false });
+  });
+
+  it('asks a half again after its wait when the batch was too large for the minute and the half was refused', async () => {
+    const clock = fakeClock();
+    // The whole batch is too large; its first half then meets the minute's limit, once.
+    const groq = mockTranslator(
+      (batch, call) => (batch.length > 2 ? tooLarge() : call === 1 ? groqLimit('minute', '45s') : spanish(batch, call)),
+      GROQ,
+    );
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings.slice(0, 4), 'es', {
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    // The 413 is a provider answering about size: halving is the remedy, and it is no outage.
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 2, 2]);
+    expect(clock.waits).toEqual([60_000]);
+    expect(run.translations).toEqual(es(strings.slice(0, 4)));
+    expect(run).toMatchObject({ unavailable: false, failed: 0 });
+  });
+
+  it('waits a minute before asking again, however short the waits a provider keeps stating', async () => {
+    // A busy half-minute on the key the chat shares: Groq says "510ms" every
+    // time, the chain sits out three of them, and a request half a second
+    // later would only meet the same minute.
+    const clock = fakeClock();
+    const start = clock.now();
+    const groq = mockTranslator(
+      (batch, call) => (clock.now() - start < 30_000 ? groqLimit('minute', '510ms') : spanish(batch, call)),
+      GROQ,
+    );
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(clock.waits).toEqual([510, 510, 510, 60_000]);
+    expect(run.translations).toEqual(es(strings));
+    expect(run).toMatchObject({ unavailable: false, exhausted: false });
+  });
+
+  it('asks each of two batches refused together again after the wait, rather than stopping', async () => {
+    // Two requests in flight meet one busy minute: that is one limit met
+    // twice, not two requests a minute apart.
+    const clock = fakeClock();
+    const start = clock.now();
+    const groq = mockTranslator(
+      (batch, call) => (clock.now() - start < 45_000 ? groqLimit('minute', '45s') : spanish(batch, call)),
+      GROQ,
+    );
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      batchSize: 4,
+      concurrency: 2,
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(groq.calls).toHaveLength(4);
+    expect(run.translations).toEqual(es(strings));
+    expect(run).toMatchObject({ unavailable: false, failed: 0 });
+  });
+
+  it('still stops two workers whose batches are refused again after the wait, before the next batch', async () => {
+    const clock = fakeClock();
+    const twelve = Array.from({ length: 12 }, (_, i) => `String number ${i}`);
+    const groq = mockTranslator(() => groqLimit('minute', '45s'), GROQ);
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(twelve, 'es', {
+      batchSize: 4,
+      concurrency: 2,
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    // A refusal after a minute's wait ends the run, whichever worker meets
+    // it first; the third batch is never sent.
+    expect(groq.calls.length).toBeGreaterThanOrEqual(3);
+    expect(groq.calls.flat()).not.toContain('String number 8');
+    expect(clock.waits.length).toBeGreaterThan(0);
+    expect(clock.waits.every((ms) => ms >= 60_000)).toBe(true);
+    expect(run).toMatchObject({ unavailable: true, rateLimited: true, exhausted: false, failed: 0, skipped: 12 });
+  });
+
+  it('asks a batch again after the wait when its provider replied badly and then asked to wait, rather than halving it', async () => {
+    const clock = fakeClock();
+    const groq = mockTranslator(
+      (batch, call) => (call === 0 ? badJson() : call === 1 ? groqLimit('minute', '56s') : spanish(batch, call)),
+      GROQ,
+    );
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(groq.calls.map((c) => c.length)).toEqual([8, 8, 8]);
+    expect(clock.waits).toEqual([60_000]);
+    expect(run.translations).toEqual(es(strings));
+    expect(run).toMatchObject({ failed: 0, unavailable: false });
+    expect(isTripped(GROQ)).toBe(false);
+  });
+
+  it('counts a request whose provider replied badly and then said to wait as unanswered: refused again after the wait, the run stops', async () => {
+    // The bad reply was paid for, and shows the provider is up; but its last
+    // word was to wait, so it never answered the request. Taken for an
+    // answer, a run of such requests scored as answers that are no use, and
+    // stopped telling the operator to check the model.
+    const clock = fakeClock();
+    const groq = mockTranslator((batch, call) => (call === 0 ? badJson() : groqLimit('minute', '56s')), GROQ);
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const run = await translateStrings(strings, 'es', {
+      batchSize: 4,
+      candidates: () => [groq.candidate, broke.candidate],
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    // The bad reply, the refusal after it, and the same four strings a
+    // minute later, refused again: two in a row, the second after the wait.
+    expect(groq.calls).toEqual([strings.slice(0, 4), strings.slice(0, 4), strings.slice(0, 4)]);
+    expect(clock.waits).toEqual([60_000]);
+    expect(run).toMatchObject({ answered: 1, unavailable: true, rateLimited: true, outage: true, failed: 0, skipped: 8 });
+  });
+
+  it('carries a request nobody answered over to the next call that shares its silence: that call waits first, and counts what it meets as the second', async () => {
+    // A queue run asks for an article a round at a time. Four long strings:
+    // the batch runs out of time, its first half is answered, and its second
+    // half runs out of time too, with no halving left. One request
+    // unanswered at the end of the round, and no outage yet.
+    const clock = fakeClock();
+    const silence = createSilence();
+    const long = Array.from({ length: 4 }, (_, i) => `${'The Mistlands is a biome shrouded in thick fog. '.repeat(23)}${i}`);
+    const groq = mockTranslator(
+      (batch, call, signal) => (call === 0 || call === 2 ? hang(signal) : spanish(batch, call)),
+      GROQ,
+    );
+    const round = await translateStrings(long, 'es', {
+      candidates: groq.candidates,
+      requestTimeoutMs: 20,
+      noAnswerWaitMs: 60_000,
+      silence,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 2]);
+    expect(round).toMatchObject({ failed: 0, unavailable: true, outage: false });
+    expect(clock.waits).toEqual([60_000]);
+
+    // The next round sits out the wait that half set, and its request,
+    // unanswered, is the second in a row: the run stops, with no re-ask.
+    const down = mockTranslator(() => unavailable(503));
+    const next = await translateStrings(['The next string.'], 'es', {
+      candidates: down.candidates,
+      noAnswerWaitMs: 60_000,
+      silence,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    expect(clock.waits).toEqual([60_000, 60_000]);
+    expect(down.calls).toHaveLength(1);
+    expect(next).toMatchObject({ unavailable: true, outage: true, answered: 0, skipped: 1 });
+
+    // Without one, a call starts afresh: no wait, and its first request unanswered is only the first.
+    const fresh = fakeClock();
+    const alone = await translateStrings(['The next string.'], 'es', {
+      candidates: mockTranslator(() => unavailable(503)).candidates,
+      noAnswerWaitMs: 60_000,
+      now: fresh.now,
+      sleep: fresh.sleep,
+    });
+    expect(fresh.waits).toEqual([60_000]);
+    expect(alone).toMatchObject({ requests: 2, outage: true });
+  });
+
+  it('holds back a worker parked for its turn until the wait another worker’s refusal set', async () => {
+    // Groq is busy for the first fifty seconds. Worker A's batch is refused
+    // five seconds in, with a wait too long to sit out; worker B is parked
+    // for its turn until fifteen. Sent then, B's batch met the same busy
+    // minute and stopped the run, though Groq answers from fifty.
+    const clock = eventClock();
+    const busy = (batch: string[]) => (clock.elapsed() < 50_000 ? groqLimit('minute', '45s') : es(batch));
+    let first = true;
+    const starts: { strings: string; at: number }[] = [];
+    const groq = mockTranslator(async (batch) => {
+      starts.push({ strings: batch.join(','), at: clock.elapsed() });
+      if (first) {
+        first = false;
+        await clock.sleep(5_000);
+      }
+      return busy(batch);
+    }, GROQ);
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const six = strings.slice(0, 6);
+    const run = await clock.drive(
+      translateStrings(six, 'es', {
+        batchSize: 2,
+        concurrency: 2,
+        candidates: () => [groq.candidate, broke.candidate],
+        pacer: createPacer(15_000, clock.now, clock.sleep),
+        noAnswerWaitMs: 60_000,
+        now: clock.now,
+        sleep: clock.sleep,
+      }),
+    );
+
+    expect(run.translations).toEqual(es(six));
+    expect(run).toMatchObject({ unavailable: false, outage: false });
+    // Nothing went out between the refusal and the end of its wait.
+    expect(starts.slice(1).every(({ at }) => at >= 65_000)).toBe(true);
+  });
+
+  it('claims a request’s turn at what it may cost, so two workers never send one minute’s tokens at once', async () => {
+    // Each answer reports four thousand tokens, at a budget of four thousand
+    // a minute. Two workers used to share every turn and send together.
+    const clock = eventClock();
+    const starts: number[] = [];
+    const model = new MockLanguageModelV3({
+      doGenerate: async (options) => {
+        const batch = promptStrings(options.prompt);
+        starts.push(clock.elapsed());
+        await clock.sleep(5_000);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ translations: es(batch) }) }],
+          finishReason: { unified: 'stop', raw: undefined },
+          usage: {
+            inputTokens: { total: 2_000, noCache: 2_000, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 2_000, text: 2_000, reasoning: 0 },
+          },
+          warnings: [],
+        };
+      },
+    });
+    const four = strings.slice(0, 4);
+    await clock.drive(
+      translateStrings(four, 'es', {
+        batchSize: 2,
+        concurrency: 2,
+        candidates: () => [{ name: GROQ, model }],
+        pacer: createPacer(0, clock.now, clock.sleep, 4_000),
+        noAnswerWaitMs: 60_000,
+        now: clock.now,
+        sleep: clock.sleep,
+      }),
+    );
+
+    // The second waits for what the first may cost, paid off at the budget's rate.
+    expect(starts).toEqual([0, (estimateTokens(four.slice(0, 2), 'es') * 60_000) / 4_000]);
+  });
+
+  it('counts every call the chain makes, and the tokens the providers say they used', async () => {
+    // What Groq's thousand requests and 200,000 tokens a day go on: the
+    // reply that failed its check, the same request asked once more, and
+    // again after the wait it stated. Three calls for one request.
+    const clock = fakeClock();
+    const groq = mockTranslator(
+      (batch, call) => (call === 0 ? badJson() : call === 1 ? groqLimit('minute', '510ms') : spanish(batch, call)),
+      GROQ,
+    );
+    const run = await translateStrings(strings, 'es', { candidates: groq.candidates, now: clock.now, sleep: clock.sleep });
+
+    expect(run.translations).toEqual(es(strings));
+    expect(run).toMatchObject({ requests: 1, calls: 3 });
+    // The mock reports twenty tokens a reply. The reply Groq turned down
+    // reports none, and counts as what the batch could have cost.
+    expect(run.tokens).toBe(estimateTokens(strings, 'es') + 20);
+  });
+
+  it('holds the next turn back until the tokens spent are paid off at the budget’s rate', async () => {
+    let clock = 0;
+    const waits: number[] = [];
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+      clock += ms;
+    };
+    const pacer = createPacer(0, () => clock, sleep, 4_000);
+    expect(await pacer.take()).toBe(true);
+    pacer.spend?.(2_000);
+    expect(await pacer.take()).toBe(true);
+    // Two thousand tokens at four thousand a minute: half a minute.
+    expect(waits).toEqual([30_000]);
+    // Nor is a turn given that would only come past the instant it must not pass.
+    pacer.spend?.(4_000);
+    expect(await pacer.take(clock + 30_000)).toBe(false);
+
+    // Without a budget, tokens hold nothing back.
+    const plain = createPacer(0, () => clock, sleep);
+    plain.spend?.(1_000_000);
+    expect(await plain.take()).toBe(true);
+    expect(waits).toEqual([30_000]);
+  });
+
+  it('holds a turn back for what the requests under way may cost, and settles each at what it used', async () => {
+    let clock = 0;
+    const waits: number[] = [];
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+      clock += ms;
+    };
+    const pacer = createPacer(0, () => clock, sleep, 4_000);
+    expect(await pacer.take(undefined, 2_000)).toBe(true);
+    // A turn while that request is under way: its 2,000 tokens first, half a minute.
+    expect(await pacer.take(undefined, 1_000)).toBe(true);
+    expect(waits).toEqual([30_000]);
+    // A turn refused for its deadline claims nothing.
+    expect(await pacer.take(clock + 1_000, 1_000_000)).toBe(false);
+    // Both end now, having used less than they might have: 1,000 and 500
+    // tokens, paid off from here, 22.5 seconds.
+    pacer.spend?.(1_000, 2_000);
+    pacer.spend?.(500, 1_000);
+    expect(await pacer.take()).toBe(true);
+    expect(waits).toEqual([30_000, 22_500]);
+
+    // Without a budget, claims hold nothing back either.
+    const plain = createPacer(0, () => clock, sleep);
+    expect(await plain.take(undefined, 1_000_000)).toBe(true);
+    expect(await plain.take(undefined, 1_000_000)).toBe(true);
+    expect(waits).toEqual([30_000, 22_500]);
+  });
+
+  it('asks for an article’s old failures after the wait, in a run that waits, when its fresh strings ended on one request nobody answered', async () => {
+    // The fresh strings: four long paragraphs whose second half runs out of
+    // time, with no halving left. One request unanswered, no outage: the
+    // retry of the string that failed before goes out after the wait, where
+    // it used to be dropped for the run.
+    const clock = fakeClock();
+    const long = Array.from({ length: 4 }, (_, i) => `${'The Mistlands is a biome shrouded in thick fog. '.repeat(23)}${i}`);
+    const lore: ArticleDoc = {
+      lead: '',
+      blocks: [...long, 'An old failure.'].map((text) => ({ kind: 'paragraph' as const, section: '', text })),
+      infobox: null,
+      images: [],
+      facets: {},
+    };
+    const groq = mockTranslator(
+      (batch, call, signal) => (call === 0 || call === 2 ? hang(signal) : spanish(batch, call)),
+      GROQ,
+    );
+    const result = await translateArticle({
+      doc: lore,
+      title: 'Lore',
+      lang: 'es',
+      memory: new Map([['Lore', 'Saber']]),
+      failures: new Map([['An old failure.', 1]]),
+      candidates: groq.candidates,
+      requestTimeoutMs: 20,
+      noAnswerWaitMs: 60_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+
+    expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 2, 1]);
+    expect(clock.waits).toEqual([60_000, 60_000]);
+    expect(result.memory.get('An old failure.')).toBe('ES:An old failure.');
+    expect(result).toMatchObject({ outage: false, unavailable: false, failed: 0 });
+  });
+
+  it('charges each request the tokens its provider reported, and a reply turned down what it could have cost', async () => {
+    let clock = 0;
+    const waits: number[] = [];
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+      clock += ms;
+    };
+    const twelve = Array.from({ length: 12 }, (_, i) => `String number ${i}`);
+    // Twenty tokens a reply at 1,200 a minute: a second between requests.
+    await translateStrings(twelve, 'es', {
+      batchSize: 4,
+      candidates: mockTranslator().candidates,
+      pacer: createPacer(0, () => clock, sleep, 1_200),
+    });
+    expect(waits).toEqual([1_000, 1_000]);
+
+    // At 60,000 a minute, a millisecond a token.
+    waits.length = 0;
+    const groq = mockTranslator((batch, call) => (call === 0 ? badJson() : spanish(batch, call)), GROQ);
+    await translateStrings(twelve, 'es', {
+      batchSize: 4,
+      candidates: groq.candidates,
+      pacer: createPacer(0, () => clock, sleep, 60_000),
+    });
+    expect(waits).toEqual([estimateTokens(twelve.slice(0, 4), 'es') + 20, 20]);
+  });
+
+  it('keeps one pace for an article’s fresh strings and its retries of old failures', async () => {
+    const clock = fakeClock();
+    const all = extractStrings(doc, 'Iron Sword').strings;
+    const mock = mockTranslator();
+    await translateArticle({
+      doc,
+      title: 'Iron Sword',
+      lang: 'es',
+      failures: new Map(all.slice(0, 2).map((s) => [s, 1])),
+      candidates: mock.candidates,
+      minIntervalMs: 5_000,
+      now: clock.now,
+      sleep: clock.sleep,
+    });
+    // Every request after the first waited its turn, the first retry included.
+    expect(mock.calls.length).toBeGreaterThan(1);
+    expect(clock.waits).toEqual(Array(mock.calls.length - 1).fill(5_000));
   });
 });
 

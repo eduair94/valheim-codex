@@ -28,8 +28,15 @@
  *      and multiplier. Whatever a cell says that is none of these is a note,
  *      numbered by its quality tab, and a cell with a line it cannot read
  *      gives no recipe rather than part of one.
+ *   2  Also the page's own item's table of upgrades ("Upgrade information"):
+ *      per quality its materials and the station level its level row
+ *      states, so the graph can set it beside the infobox (the Wood Tower
+ *      Shield's two first steps) and take a quality only the table states
+ *      (the Staff of Protection's fourth). A line of several linked
+ *      materials, "Pike x1 Tuna x1", is each of them, where it was one
+ *      unreadable note.
  */
-export const RECIPES_VERSION = 1;
+export const RECIPES_VERSION = 2;
 
 /**
  * What RECIPES_VERSION's extractor reads from the saved pages in
@@ -39,4 +46,4 @@ export const RECIPES_VERSION = 1;
  * that has to move with it. A new or edited saved page changes it too, and
  * then only this needs updating.
  */
-export const RECIPES_OUTPUT_HASH = '32fc2ab7ded1b279';
+export const RECIPES_OUTPUT_HASH = 'a508b433e3263bf9';

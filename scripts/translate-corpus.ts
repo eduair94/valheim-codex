@@ -9,7 +9,7 @@ import {
   rewriteTranslation,
   saveTranslationWork,
 } from '../src/lib/wiki/translate-store';
-import { COMMON_FLAGS, openDatabase, parseArgs, QUEUE_FLAGS, scriptHolder } from './translate-cli';
+import { COMMON_FLAGS, openDatabase, PACE_FLAGS, parseArgs, QUEUE_FLAGS, runPace, scriptHolder } from './translate-cli';
 import { translateQueue } from './translate-queue';
 
 /**
@@ -23,20 +23,23 @@ import { translateQueue } from './translate-queue';
  *   pnpm translate:es --max-strings 600       # leave longer articles for later
  *   pnpm translate:es --rebuild               # no model: recover memories, merge doubled headings
  *
- * Also: --lang (es), --order smallest|largest (smallest), --rpm (requests per
- * minute, 15; 0 for no spacing), --batch (strings per request, 40), --chunk
- * (strings between saves, 400), --concurrency (requests at once, 1), and
- * which database: --pglite <dir> for a local copy, --neon to confirm writing
- * to DATABASE_URL when it comes from .env.local (scripts/_db.ts).
+ * Also: --lang (es), --order smallest|largest (smallest), --tpm (tokens a
+ * minute, 4,000; 0 for no budget), --rpm (requests a minute; none by
+ * default), --batch (strings per request, 40), --chunk (strings between
+ * saves: a round of requests, --batch times --concurrency; 0 for one save
+ * per article), --concurrency (requests at once, 1), and which database:
+ * --pglite <dir> for a local copy, --neon to confirm writing to DATABASE_URL
+ * when it comes from .env.local (scripts/_db.ts). The defaults, and the
+ * measurements behind them, are in translate-cli.ts (`runPace`).
  *
  * The free tiers this runs on are measured in tokens per day — Groq allows
  * 200,000, roughly fifty ordinary articles — so translating a thousand
  * articles is not one job, it is a job run repeatedly over a couple of weeks.
- * That makes resumability the whole design. Work is committed every --chunk
- * strings into the article's translation memory, so a run that dies, or a
- * budget that runs out a third of the way into a 3,000-string reference page,
- * costs only the batch in flight, and the next run continues from that string
- * rather than from the top of the article.
+ * That makes resumability the whole design. Work is committed after every
+ * round of requests into the article's translation memory, so a run that
+ * dies, or a budget that runs out a third of the way into a 3,000-string
+ * reference page, costs only the requests in flight, and the next run
+ * continues from that string rather than from the top of the article.
  *
  * Smallest first by default. Largest first spent its first two hundred
  * requests on four reference dumps (Version history, Point of interest, Item
@@ -45,16 +48,37 @@ import { translateQueue } from './translate-queue';
  * by name, in that order. Within an article the skeleton goes first: title,
  * lead, headings and labels, then the text from the top.
  *
- * Rate-aware twice over. Requests are spaced to --rpm, so a long run stays
- * under a provider's per-minute limit instead of tripping it and falling
- * through the chain. And the run stops at the first request every provider
- * refuses: when the daily budget is gone it is gone, and a hundred more
- * failures only make the log harder to read. Everything translated before
- * that point is saved. It also stops when two articles in a row get no answer
- * at all (an outage: nothing is held against their strings), and when three
- * in a row are sent new strings and get nothing usable back (a provider
- * problem). An article with only old failures left counts as neither: those
- * are expected to fail again, and the queue puts such articles last.
+ * Rate-aware three times over. Requests are paced by the tokens they use,
+ * across the whole run: --tpm a minute, half of Groq's 8,000 by default,
+ * because the site's chat answers on the same key and keeps the other half.
+ * A provider that refuses anyway and says when it will answer ("Please try
+ * again in 12.8s") is waited for, not skipped for providers that cannot
+ * answer at all. And a request no provider answered is asked again, a minute
+ * later, before it counts against the run.
+ *
+ * The pace bounds the average, not one batch. In the default order every
+ * batch leaves a reader's question room; a --priority run's long prose
+ * batches fill most of Groq's minute for some seconds each, and a question
+ * that arrives just then finds no room in time, about one moment in twenty
+ * (translate-cli.ts, `TOKENS_PER_MINUTE`).
+ *
+ * The day is the chat's too. A run left to itself spends Groq's 200,000
+ * tokens, and until they age out of Groq's rolling day, readers' questions
+ * find it refusing, with (as of October 2026) no other provider funded behind
+ * it. So run it when the chat is quiet, and bound it (--limit, --slugs) on a
+ * day the chat matters. Each article's line, and the summary, say how many
+ * tokens went.
+ *
+ * The run stops when the free tier runs out: at the first request every
+ * provider refuses for the day, out of credit or out of a daily quota, since
+ * a hundred more refusals only make the log harder to read. Everything
+ * translated before that point is saved. It also stops when two articles in a
+ * row end with no answer, two requests in a row unanswered with at least a
+ * minute's wait before the second (an outage, or rate limits that outlast
+ * every wait: nothing is held against their strings), and when three in a
+ * row are sent new strings and get nothing usable back (a provider problem).
+ * An article with only old failures left counts as neither: those are
+ * expected to fail again, and the queue puts such articles last.
  *
  * Safe to run while the site is up. Each article is taken under its lease
  * first, the same one the reader's endpoint takes, so the two never pay for
@@ -82,7 +106,7 @@ import { translateQueue } from './translate-queue';
 
 const USAGE =
   'pnpm translate:es [--dry-run] [--priority | --slugs a,b] [--limit N] [--max-strings N]\n' +
-  '                  [--order smallest|largest] [--rpm N] [--batch N] [--chunk N] [--concurrency N]\n' +
+  '                  [--order smallest|largest] [--tpm N] [--rpm N] [--batch N] [--chunk N] [--concurrency N]\n' +
   '                  [--lang es] [--rebuild] [--pglite <dir> | --neon]';
 
 const args = parseArgs(
@@ -90,12 +114,9 @@ const args = parseArgs(
   {
     ...COMMON_FLAGS,
     ...QUEUE_FLAGS,
+    ...PACE_FLAGS,
     'dry-run': { type: 'boolean' },
     rebuild: { type: 'boolean' },
-    rpm: { type: 'string' },
-    batch: { type: 'string' },
-    chunk: { type: 'string' },
-    concurrency: { type: 'string' },
   },
   USAGE,
 );
@@ -108,10 +129,7 @@ if (args.has('help')) {
 const lang = args.flag('lang') ?? 'es';
 const limit = args.count('limit', 0) || Number.POSITIVE_INFINITY;
 const maxStrings = args.count('max-strings', 0) || Number.POSITIVE_INFINITY;
-const chunk = args.count('chunk', 400) || Number.POSITIVE_INFINITY;
-const batchSize = Math.max(1, Math.floor(args.count('batch', 40)));
-const rpm = args.count('rpm', 15);
-const concurrency = Math.max(1, Math.floor(args.count('concurrency', 1)));
+const pace = runPace(args);
 const order = args.order();
 const slugs = args.slugs();
 const dryRun = args.has('dry-run');
@@ -125,10 +143,7 @@ try {
       lang,
       limit,
       maxStrings,
-      chunk,
-      batchSize,
-      rpm,
-      concurrency,
+      ...pace,
       order,
       slugs,
       dryRun,

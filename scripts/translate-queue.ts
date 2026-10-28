@@ -2,12 +2,17 @@ import type { Db } from '../src/lib/db/create-db';
 import {
   applyMemory,
   captionsOf,
+  createPacer,
+  createSilence,
+  estimateTokens,
   extractStrings,
   isPublishable,
   planArticle,
   pruneFailures,
   splitBatches,
   translateArticle,
+  type Pacer,
+  type Silence,
   type TranslateOptions,
 } from '../src/lib/wiki/translate';
 import {
@@ -45,8 +50,13 @@ export type QueueRun = {
   chunk: number;
   /** Strings per request. */
   batchSize: number;
-  /** Requests per minute; 0 for no spacing. */
+  /** Requests per minute; 0 for no spacing by requests. */
   rpm: number;
+  /**
+   * Tokens per minute the run may spend, paid off as the providers report
+   * them; 0 for no budget. `TOKENS_PER_MINUTE` from the command line.
+   */
+  tpm: number;
   /** Requests at once. */
   concurrency: number;
   order: 'smallest' | 'largest';
@@ -54,8 +64,11 @@ export type QueueRun = {
   slugs: string[] | null;
   /** Say what would be sent, and send and write nothing. */
   dryRun: boolean;
-  /** The model chain, clock and sleep, for a test; the operator's chain otherwise. */
-  translate?: Pick<TranslateOptions, 'candidates' | 'now' | 'sleep'>;
+  /**
+   * The model chain, clock and sleep, and a provider's deadline, for a test;
+   * the operator's chain otherwise.
+   */
+  translate?: Pick<TranslateOptions, 'candidates' | 'now' | 'sleep' | 'requestTimeoutMs'>;
   log?: (line: string) => void;
 };
 
@@ -63,12 +76,27 @@ export type QueueResult = {
   /** Articles brought forward: strings translated, or brought up to date from memory. */
   articles: number;
   strings: number;
+  /** Requests made of the provider chain: batches, halves, and batches asked again after a wait. */
   requests: number;
+  /** Calls to providers: every one the chain made, fallbacks and same-provider retries included. */
+  calls: number;
+  /** Tokens the providers said they used: what their per-minute and per-day limits count. */
+  tokens: number;
   /** Where the run stopped before the end of its queue, and why. */
   stopped: { slug: string; reason: StopReason } | null;
 };
 
 type Acquired = Extract<Lease, { kind: 'acquired' }>;
+
+/**
+ * How long a run waits, after a request no provider answered, before its
+ * next request: the same strings asked again, the next round of the
+ * article, or the next article — when the refusal named no wait of its own.
+ * A minute is the window every per-minute limit counts in, and long enough
+ * for an "overloaded" spell to pass; two requests in a row with no answer, a
+ * minute apart, are an outage rather than one busy minute.
+ */
+const NO_ANSWER_WAIT_MS = 60_000;
 
 /** Why a run stopped, for the person who has to decide what to do next. */
 const STOPPED: Record<StopReason, (slug: string) => string> = {
@@ -80,8 +108,13 @@ const STOPPED: Record<StopReason, (slug: string) => string> = {
     'Los proveedores responden, pero nada de lo que devuelven sirve: revisá el modelo y lo que contesta.',
   unavailable: (slug) =>
     `Se detuvo en "${slug}": ${MAX_DOWN_ARTICLES} artículos seguidos sin respuesta de ningún proveedor ` +
-    '(errores del servidor, de red o demoras).\n' +
+    '(errores del servidor, de red o demoras), con al menos un minuto de espera antes de cada nuevo pedido.\n' +
     'No se anotó nada en contra de las cadenas; volvé a correrlo más tarde y retoma donde quedó.',
+  'rate-limited': (slug) =>
+    `Se detuvo en "${slug}": ${MAX_DOWN_ARTICLES} artículos seguidos en que los proveedores siguieron limitando ` +
+    'por minuto, con al menos un minuto de espera antes de cada nuevo pedido.\n' +
+    'Algo más está gastando el mismo cupo, seguramente el chat del sitio. Volvé a correrlo en un rato más ' +
+    'tranquilo, o con un --tpm más bajo; retoma donde quedó, y no se anotó nada en contra de las cadenas.',
 };
 
 export async function translateQueue(db: Db, run: QueueRun): Promise<QueueResult> {
@@ -100,7 +133,16 @@ export async function translateQueue(db: Db, run: QueueRun): Promise<QueueResult
   let position = 0;
   let streaks: Streaks = { idle: 0, down: 0 };
   let stopped: QueueResult['stopped'] = null;
-  const totals = { strings: 0, requests: 0, chars: 0 };
+  const totals = { strings: 0, requests: 0, calls: 0, tokens: 0, chars: 0 };
+  // One pace for the whole run. Each article used to start its own, so the
+  // first request of every article went out on the heels of the last one,
+  // whatever --rpm said. It hears the tokens every request used, and keeps
+  // the run to --tpm of them a minute.
+  const pacer = createPacer(run.rpm > 0 ? 60_000 / run.rpm : 0, run.translate?.now, run.translate?.sleep, run.tpm);
+  // And one count of the requests no provider answered, for the same reason:
+  // the request after one, in the next round or the next article, still
+  // waits before it asks, and still counts as the second (`Silence`).
+  const silence = createSilence();
 
   for (const entry of entries) {
     if (done >= run.limit) break;
@@ -120,12 +162,18 @@ export async function translateQueue(db: Db, run: QueueRun): Promise<QueueResult
 
     if (run.dryRun) {
       const chars = todo.reduce((n, i) => n + extraction.strings[i]!.length, 0);
-      const requests = splitBatches(todo.map((i) => extraction.strings[i]!), run.batchSize).length;
+      const batches = splitBatches(todo.map((i) => extraction.strings[i]!), run.batchSize);
+      // At each batch's ceiling: no more than this, and in practice less.
+      const tokens = batches.reduce((n, { batch }) => n + estimateTokens(batch, run.lang), 0);
       totals.strings += todo.length;
-      totals.requests += requests;
+      totals.requests += batches.length;
+      totals.tokens += tokens;
       totals.chars += chars;
       done += 1;
-      log(`${label} ${todo.length} de ${extraction.strings.length} cadenas, ${requests} pedidos, ${chars} caracteres`);
+      log(
+        `${label} ${todo.length} de ${extraction.strings.length} cadenas, ${batches.length} pedidos, ` +
+          `${chars} caracteres, hasta ${tokens} tokens`,
+      );
       continue;
     }
 
@@ -155,8 +203,10 @@ export async function translateQueue(db: Db, run: QueueRun): Promise<QueueResult
       }
 
       const started = Date.now();
-      const outcome = await translateInChunks(db, run, job, lease);
+      const outcome = await translateInChunks(db, run, job, lease, pacer, silence);
       totals.requests += outcome.requests;
+      totals.calls += outcome.calls;
+      totals.tokens += outcome.tokens;
       totals.strings += outcome.translated;
       if (outcome.translated > 0) done += 1;
 
@@ -171,15 +221,22 @@ export async function translateQueue(db: Db, run: QueueRun): Promise<QueueResult
           : job.published
             ? `  (se sigue mostrando la traducción anterior; ${progress})`
             : `  (todavía no se muestra: ${progress})`;
+      // A rate limit is a provider that answered "wait", not silence: the
+      // operator looks for a busy chat, not for an outage.
       const why =
         outcome.translated > 0 || outcome.exhausted
           ? ''
-          : outcome.answered === 0 && outcome.unavailable
-            ? '  — ningún proveedor respondió'
+          : outcome.outage
+            ? outcome.rateLimited
+              ? '  — límite por minuto, aun tras esperar'
+              : '  — ningún proveedor respondió'
             : outcome.freshSent === 0
               ? '  — solo le quedan cadenas que ya fallaron antes'
               : '';
-      log(`${label} ${seconds}s  ${outcome.model ?? '—'}  ${outcome.translated} cadenas${status}${why}`);
+      log(
+        `${label} ${seconds}s  ${outcome.model ?? '—'}  ${outcome.translated} cadenas, ${outcome.tokens} tokens` +
+          `${status}${why}`,
+      );
 
       const next = afterArticle(streaks, outcome);
       streaks = next.streaks;
@@ -194,25 +251,56 @@ export async function translateQueue(db: Db, run: QueueRun): Promise<QueueResult
   }
 
   if (run.dryRun) {
+    // The slower of the two paces bounds the run; tokens at their ceiling make it a bound, not a forecast.
+    const minutes = Math.ceil(
+      Math.max(run.tpm > 0 ? totals.tokens / run.tpm : 0, run.rpm > 0 ? totals.requests / run.rpm : 0),
+    );
     log(
       `\n${done} artículos: ${totals.strings} cadenas, ${totals.requests} pedidos de hasta ${run.batchSize}, ` +
-        `${totals.chars} caracteres de inglés.` +
-        (run.rpm > 0 ? ` A ${run.rpm} pedidos por minuto, unos ${Math.ceil(totals.requests / run.rpm)} minutos.` : ''),
+        `${totals.chars} caracteres de inglés, hasta ${totals.tokens} tokens.` +
+        (minutes > 0 ? ` A este ritmo, unos ${minutes} minutos como mucho.` : ''),
     );
   } else {
-    log(`\nTraducidos ${totals.strings} cadenas en ${done} artículos, con ${totals.requests} pedidos.`);
+    log(
+      `\nTraducidos ${totals.strings} cadenas en ${done} artículos, con ${totals.requests} pedidos ` +
+        `(${totals.calls} llamadas a proveedores, ${totals.tokens} tokens).`,
+    );
     if (stopped) log(STOPPED[stopped.reason](stopped.slug));
   }
-  return { articles: done, strings: totals.strings, requests: totals.requests, stopped };
+  return {
+    articles: done,
+    strings: totals.strings,
+    requests: totals.requests,
+    calls: totals.calls,
+    tokens: totals.tokens,
+    stopped,
+  };
 }
 
 /**
  * One article, saved every `chunk` strings under its lease, which each save
- * renews. A string that fails is not sent again in the same run, so a string
- * no model will translate cannot keep the article busy forever; it is counted
- * against itself and left for the next run.
+ * renews: by default after every round of requests (`runPace`), so a run
+ * that dies, during a wait or not, costs only the round in flight. A string
+ * that fails is not sent again in the same run, so a string no model will
+ * translate cannot keep the article busy forever; it is counted against
+ * itself and left for the next run.
+ *
+ * Nobody is waiting on this run, so it waits out what the reader's endpoint
+ * cannot: a provider's rate limit (the chain does), and a request no provider
+ * answered, asked again for the same strings a minute later
+ * (`NO_ANSWER_WAIT_MS`). Only an outage ends the article: a round that ends
+ * on one request nobody answered — a long half that ran out of time, with no
+ * halving left — is followed by the next, after the wait, and it is that
+ * round's first request which tells whether the providers are down.
  */
-async function translateInChunks(db: Db, run: QueueRun, job: TranslationJob, lease: Acquired) {
+async function translateInChunks(
+  db: Db,
+  run: QueueRun,
+  job: TranslationJob,
+  lease: Acquired,
+  pacer: Pacer,
+  silence: Silence,
+) {
   let memory = lease.memory;
   let failures = lease.failures;
   let published = false;
@@ -220,9 +308,12 @@ async function translateInChunks(db: Db, run: QueueRun, job: TranslationJob, lea
   let model: string | null = null;
   let translated = 0;
   let requests = 0;
+  let calls = 0;
+  let tokens = 0;
   let answered = 0;
   let exhausted = false;
-  let unavailable = false;
+  let outage = false;
+  let rateLimited = false;
   let total = 0;
   let pending = 0;
   /** Strings sent that had never failed before this run: none for an article stuck on old failures. */
@@ -240,7 +331,9 @@ async function translateInChunks(db: Db, run: QueueRun, job: TranslationJob, lea
       skip: tried,
       batchSize: run.batchSize,
       concurrency: run.concurrency,
-      minIntervalMs: run.rpm > 0 ? 60_000 / run.rpm : 0,
+      pacer,
+      silence,
+      noAnswerWaitMs: NO_ANSWER_WAIT_MS,
       ...run.translate,
     });
     for (const s of result.attempted) {
@@ -248,6 +341,8 @@ async function translateInChunks(db: Db, run: QueueRun, job: TranslationJob, lea
       if ((lease.failures.get(s) ?? 0) === 0) freshSent += 1;
     }
     requests += result.requests;
+    calls += result.calls;
+    tokens += result.tokens;
     answered += result.answered;
     total = result.total;
     pending = result.pending;
@@ -288,15 +383,32 @@ async function translateInChunks(db: Db, run: QueueRun, job: TranslationJob, lea
       exhausted = true;
       break;
     }
-    // Providers that stopped answering will not answer the next chunk either.
-    if (result.unavailable) {
-      unavailable = true;
+    // Providers that stopped answering — two requests in a row, the second a
+    // minute after the first — will not answer the next round either.
+    if (result.outage) {
+      outage = true;
+      rateLimited = result.rateLimited;
       break;
     }
     if (result.pending === 0 || result.attempted.length === 0) break;
   }
 
-  return { translated, requests, answered, exhausted, unavailable, freshSent, published, lost, model, total, pending };
+  return {
+    translated,
+    requests,
+    calls,
+    tokens,
+    answered,
+    exhausted,
+    outage,
+    rateLimited,
+    freshSent,
+    published,
+    lost,
+    model,
+    total,
+    pending,
+  };
 }
 
 /** Re-applies the memory and stamps the translation with the current article, when it is worth showing. */

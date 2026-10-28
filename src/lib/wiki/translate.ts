@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { generateText, NoObjectGeneratedError, NoOutputGeneratedError, Output } from 'ai';
-import { AllProvidersFailedError, ResponseTimeoutError, withFallback } from '@/lib/rag/fallback';
+import { generateText, NoObjectGeneratedError, NoOutputGeneratedError, Output, type LanguageModelUsage } from 'ai';
+import { refusalOf, statedWaitMs, statusOf } from '@/lib/rag/circuit';
+import { AllProvidersFailedError, isBadReply, ResponseTimeoutError, withFallback } from '@/lib/rag/fallback';
 import { rewriteCandidates, type Candidate } from '@/lib/rag/provider';
 import { describeError, logWarn } from '@/lib/log';
 import type { ArticleBlock, ArticleDoc, ArticleImage, ArticleInfobox } from './article-types';
@@ -680,17 +681,149 @@ const RETRY_BATCH = 5;
  * A model that merged two lines of forty usually gets twenty right, so one
  * halving recovers most of a bad batch for at most two more requests. Deeper
  * splitting would multiply the requests for a string that fails on its own.
+ *
+ * A batch too large for a provider's minute is another matter: it is halved
+ * until it fits, without using this up. The provider says so at once and the
+ * refusal costs no tokens, and stopping at the first halving left the halves
+ * that were still too large to meet the same refusal on every later run.
  */
 const MAX_SPLITS = 1;
 
 /**
  * Requests in a row that no provider answered — server errors, the network,
- * timeouts (`judgeFailure`) — before a run stops. Two rather than one, so a
- * single batch some provider chokes on does not end the run before the next
- * batch is tried; past that it is an outage, and every further request only
- * waits to fail the same way.
+ * timeouts, rate limits that outlasted every wait (`judgeFailure`) — before a
+ * run stops. Two rather than one, so a single batch some provider chokes on
+ * does not end the run before the next batch is tried; past that it is an
+ * outage, and every further request only waits to fail the same way.
+ *
+ * A run that can wait (`noAnswerWaitMs`) counts the second only when it was
+ * made after a real wait. Two requests that met one busy minute together —
+ * sent at once by two workers, or a batch's half sent seconds after the batch
+ * — are that minute's limit met twice, and stopping on them would end a run
+ * while the provider was a minute from answering.
+ *
+ * In a row means across calls too, for a run that hands each of them the
+ * same `Silence`: the bulk script asks for an article a round at a time.
  */
 const MAX_UNANSWERED = 2;
+
+/**
+ * What a run that waits knows of the requests no provider answered: how many
+ * in a row (`MAX_UNANSWERED`), whether the last of them was refused for the
+ * minute, and the wait it set (`noAnswerWaitMs`).
+ *
+ * Shared like a pacer, and for the same reason. The bulk script asks for an
+ * article a round of requests at a time, a call each, then moves on to the
+ * next article, and its stop rule is about requests in a row, not about
+ * calls. Counted afresh by every call, the request after a round that ended
+ * on one nobody answered went out without the wait, and nothing told that
+ * round from an outage: the script dropped the rest of the article for the
+ * run.
+ *
+ * The translator's own bookkeeping: a caller makes one (`createSilence`) and
+ * hands it to every call of the run.
+ */
+export type Silence = {
+  /** Requests in a row no provider answered. */
+  unanswered: number;
+  /** The last of them was refused for the minute, by a provider that is up. */
+  rateLimited: boolean;
+  /** No request goes out before this instant, on the run's clock (`now`). */
+  resumeAt: number;
+};
+
+export function createSilence(): Silence {
+  return { unanswered: 0, rateLimited: false, resumeAt: Number.NEGATIVE_INFINITY };
+}
+
+/**
+ * The longest wait the run sits out, after a request no provider answered,
+ * whatever a rate limit states: a limit further off than this is an outage
+ * for this run's purposes.
+ */
+const MAX_NO_ANSWER_WAIT_MS = 5 * 60 * 1000;
+
+/**
+ * The longest stated rate-limit wait a batch sits out on the same provider
+ * (fallback.ts), where the chat sits out twenty seconds at most: a run with
+ * no reader waiting on it can afford a provider's whole per-minute window.
+ * The provider's deadline, `requestTimeoutMs`, bounds it further.
+ */
+const RATE_LIMIT_WAIT_MS = 60_000;
+
+/*
+ * A batch's output ceiling (`maxReplyTokens`).
+ *
+ * Measured on the corpus's translation memories in October 2026, 185 batches
+ * cut the way `splitBatches` cuts them: the reply asked for, the JSON list of
+ * translations, never ran past one and a half characters per character of
+ * English plus forty per string. The longest was "flax", forty strings and
+ * 1,712 characters of English, with a reply of 2,178. Spanish runs about a
+ * sixth longer than English, and the English kept in brackets after a name
+ * adds the rest. Three characters a token is fewer than these models' own
+ * tokenizers need for Spanish, so the bound errs long.
+ *
+ * Reasoning comes out of the same budget, before the reply's first word, and
+ * no response reports it. Going by time instead: Groq took up to six or seven
+ * seconds over a batch of forty in the production run of 2026-10-28, which at
+ * the four to five hundred tokens a second it writes is some two thousand
+ * tokens of gpt-oss reasoning ahead of a reply of seven hundred. The allowance
+ * is half as much again.
+ *
+ * And never more than 8,192 tokens, however long the batch: an eighth of the
+ * 65,536 a request with no ceiling is priced at, and half of what OpenRouter
+ * could afford when it refused them. A reply cut off by the ceiling comes
+ * back unusable, and its batch is halved like any other.
+ */
+const REPLY_CHARS_PER_CHAR = 1.5;
+const REPLY_CHARS_PER_STRING = 40;
+const REPLY_CHARS_PER_TOKEN = 3;
+const REASONING_TOKENS = 3_072;
+const MAX_REPLY_TOKENS = 8_192;
+
+/** The output ceiling for one batch: room for its reply, and for the reasoning before it. */
+export function maxReplyTokens(batch: readonly string[]): number {
+  const chars = batch.reduce((n, text) => n + text.length, 0);
+  const reply = REPLY_CHARS_PER_CHAR * chars + REPLY_CHARS_PER_STRING * batch.length;
+  return Math.min(MAX_REPLY_TOKENS, REASONING_TOKENS + Math.ceil(reply / REPLY_CHARS_PER_TOKEN));
+}
+
+/**
+ * Characters of prompt per token, about the way Groq counts a request
+ * against its minute: 1,963 tokens "requested" by mountain's first batch in
+ * the production run of 2026-10-28, for 3,750 characters of instructions and
+ * strings, the schema besides. Half what English text usually takes, since
+ * the schema and the model's chat format count too.
+ */
+const PROMPT_CHARS_PER_TOKEN = 2;
+
+/** What a model is asked for one batch, after the instructions. */
+function promptFor(batch: readonly string[], lang: string): string {
+  // One line per string whatever it contains: a table cell with a line
+  // break in it would otherwise read as two entries and shift the count.
+  const numbered = batch.map((s, n) => `${n + 1}. ${JSON.stringify(s)}`).join('\n');
+  return `Target language: ${lang}\n\nTranslate these ${batch.length} strings:\n\n${numbered}`;
+}
+
+/**
+ * What one batch can cost in tokens before it is sent: its prompt, counted
+ * the way Groq counts it, and its reply at the ceiling it is given. An upper
+ * bound — reasoning and reply together stay well under the ceiling — for a
+ * dry run's sums, and for a reply a provider turned down itself (Groq's
+ * "Failed to validate JSON"), which was written and counted but reports no
+ * usage.
+ */
+export function estimateTokens(batch: readonly string[], lang: string): number {
+  const prompt = INSTRUCTIONS.length + promptFor(batch, lang).length;
+  return Math.ceil(prompt / PROMPT_CHARS_PER_TOKEN) + maxReplyTokens(batch);
+}
+
+/** The tokens one call says it used, prompt and output; undefined when it says nothing. */
+function usedTokens(usage: LanguageModelUsage | undefined): number | undefined {
+  if (!usage) return undefined;
+  const total = usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+  return total > 0 ? total : undefined;
+}
 
 /**
  * Characters of English a slow model can take longer to write than a provider
@@ -705,35 +838,96 @@ const SLOW_TEXT_CHARS = 2_000;
  * Shared is the point: the reader endpoint may be translating two articles at
  * once, and what the providers count is requests per minute from this
  * process, not per article.
+ *
+ * It can pace by tokens as well, which is what Groq's free tier counts:
+ * 8,000 a minute, shared with the site's chat. Batches differ in size by ten
+ * times and more, a few table cells against forty paragraphs, so no number of
+ * requests a minute keeps a run under such a limit without slowing it to the
+ * pace of its largest batch. Fifteen a minute, the bulk script's old pace,
+ * asked for ten times what Groq admits, and held its minute full for as long
+ * as the run lasted.
  */
 export type Pacer = {
   /**
    * Waits for the next request's turn. Resolves false at once, claiming no
-   * turn, when that turn would come at or after `notAfter`.
+   * turn, when that turn would come at or after `notAfter`. `tokens` is what
+   * the request may cost (`estimateTokens`): a pacer with a budget holds
+   * other turns back by it until the request says what it used.
    */
-  take: (notAfter?: number) => Promise<boolean>;
+  take: (notAfter?: number, tokens?: number) => Promise<boolean>;
+  /**
+   * The tokens a request used, prompt, reasoning and reply, in place of the
+   * `claim` it took its turn with; none for a turn given back unused. A
+   * pacer with a budget of tokens a minute holds the next turn back until it
+   * has earned them again; one without ignores them.
+   */
+  spend?: (tokens: number, claim?: number) => void;
 };
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Turns at least `minIntervalMs` apart, claimed in order. */
+/**
+ * Turns at least `minIntervalMs` apart, claimed in order, and, with a budget
+ * of `tokensPerMinute`, no sooner than the tokens spent so far allow at that
+ * rate. Tokens are paid off from when the request that spent them ended,
+ * which errs slow by the time each request takes: the budget is a ceiling.
+ *
+ * A turn given while other requests are under way waits for what they may
+ * cost too, as though they had ended that moment. Charged only once they
+ * ended, two workers were given the same turn and sent a minute's tokens
+ * together. What a request may cost is a ceiling as well, two or three times
+ * what a batch uses, so on a budget a second worker mostly waits for the
+ * first to finish: the budget, not the workers, sets the pace.
+ */
 export function createPacer(
   minIntervalMs: number,
   now: () => number = Date.now,
   sleep: (ms: number) => Promise<void> = defaultSleep,
+  tokensPerMinute = 0,
 ): Pacer {
   let next = 0;
+  /** When every token spent so far is paid off. */
+  let paidAt = 0;
+  /** What the requests under way may cost: claimed with their turns, settled when they end. */
+  let claimed = 0;
+  const payOff = (tokens: number): number => (tokens * 60_000) / tokensPerMinute;
   return {
-    async take(notAfter) {
-      const at = Math.max(now(), next);
+    async take(notAfter, tokens = 0) {
+      const owed = claimed > 0 ? Math.max(paidAt, now()) + payOff(claimed) : paidAt;
+      const at = Math.max(now(), next, owed);
       if (notAfter !== undefined && at >= notAfter) return false;
-      if (minIntervalMs <= 0) return true;
-      next = at + minIntervalMs;
+      if (minIntervalMs > 0) next = at + minIntervalMs;
+      if (tokensPerMinute > 0 && tokens > 0) claimed += tokens;
       const wait = at - now();
       if (wait > 0) await sleep(wait);
       return true;
     },
+    spend(tokens, claim = 0) {
+      if (tokensPerMinute <= 0) return;
+      if (claim > 0) claimed = Math.max(0, claimed - claim);
+      if (tokens > 0) paidAt = Math.max(paidAt, now()) + payOff(tokens);
+    },
   };
+}
+
+/** Waits `ms` with `sleep`, or until `signal` aborts. True when the wait ran its course. */
+async function waitOut(ms: number, sleep: (ms: number) => Promise<void>, signal: AbortSignal | undefined): Promise<boolean> {
+  if (!signal) {
+    await sleep(ms);
+    return true;
+  }
+  if (signal.aborted) return false;
+  let onAbort = (): void => {};
+  const aborted = new Promise<void>((resolve) => {
+    onAbort = resolve;
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([sleep(ms), aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+  return !signal.aborted;
 }
 
 export type TranslateOptions = {
@@ -749,7 +943,10 @@ export type TranslateOptions = {
    * the whole chain. Ignored when `pacer` is given.
    */
   minIntervalMs?: number;
-  /** Turns shared with other runs; one of `minIntervalMs` for this run alone otherwise. */
+  /**
+   * Turns shared with other runs, and with the tokens each request used
+   * charged to them; one of `minIntervalMs` for this run alone otherwise.
+   */
   pacer?: Pacer;
   /**
    * No request starts at or after this instant (ms since the epoch) — the
@@ -768,8 +965,31 @@ export type TranslateOptions = {
    * How long one provider may take to answer one request before it is
    * abandoned and the next provider in the chain is asked. A hung connection
    * would otherwise hold the request, and every reader waiting on it, forever.
+   * A rate limit it states is waited out within this time, when it leaves
+   * the provider time to answer.
    */
   requestTimeoutMs?: number;
+  /**
+   * After a request no provider answered — a server error, a timeout, a rate
+   * limit that outlasted what the chain waits for — how long to wait before
+   * the next request: the same strings asked again, or the halves of a batch
+   * that ran out of time. A rate limit that states a longer wait is waited
+   * out instead; a shorter one is not enough, since the chain has sat it out
+   * already, up to three times.
+   *
+   * Zero, the default, is for a run a reader is waiting on (the endpoint):
+   * the next batch is tried at once, and a rate limit ends the run on the
+   * spot, since the request after it would be refused just the same. Either
+   * way a second request in a row with no answer ends the run — made after
+   * the wait, in a run that waits (`MAX_UNANSWERED`).
+   */
+  noAnswerWaitMs?: number;
+  /**
+   * Requests no provider answered, counted across calls (`Silence`): a run
+   * that makes several hands each the same one, as it does its pacer. A call
+   * given none counts its own.
+   */
+  silence?: Silence;
   /** The model chain; the operator's rewrite chain unless a test supplies one. */
   candidates?: () => Candidate[];
   now?: () => number;
@@ -790,21 +1010,64 @@ export type TranslationRun = {
    * provider refused first, or no provider could answer at all.
    */
   skipped: number;
-  /** Every provider refused a request: their budget is spent for now. */
+  /**
+   * Every provider refused a request for the day — out of credit, or out of
+   * a daily quota: their budget is spent until it renews.
+   */
   exhausted: boolean;
   /**
-   * The last request no provider answered, for reasons that are not about the
-   * text — server errors, the network, timeouts — and nothing answered after
-   * it. Its strings are left as they were, held against nothing.
+   * This call's last request went unanswered, for reasons that are not about
+   * the text — server errors, the network, timeouts, rate limits that
+   * outlasted every wait — and nothing answered after it. Its strings are
+   * left as they were, held against nothing.
    */
   unavailable: boolean;
-  /** Requests made, retries included. */
+  /**
+   * That last request was refused for the minute: a provider is up, and said
+   * to wait longer than the run would. Something else is spending the same
+   * minute — the site's chat runs on the same key — which a quieter hour
+   * cures, where an outage (`unavailable` alone) does not.
+   */
+  rateLimited: boolean;
+  /**
+   * The call stopped for want of an answer: `MAX_UNANSWERED` requests in a
+   * row no provider answered, the last of them sent after the wait in a run
+   * that waits — an outage, or rate limits that outlast every wait — or, in a
+   * run that cannot wait, the first request every provider refused. Implies
+   * `unavailable`; not the other way round, since a run that waits can end
+   * on one request nobody answered, which the next call sharing its
+   * `silence` follows up after the wait.
+   */
+  outage: boolean;
+  /**
+   * Requests made of the provider chain: one per batch, per half of a halved
+   * batch, and per time a batch was asked again after a wait.
+   */
   requests: number;
-  /** Requests a provider answered, usably or not: zero when nothing was produced. */
+  /**
+   * Calls to providers: every time the chain asked one, whatever it said. A
+   * request that fell through a refusing provider before another answered
+   * is two, and so is one asked of the same provider twice — after a reply
+   * that did not fit, or a rate limit it waited out. Groq's daily limit
+   * counts requests in these.
+   */
+  calls: number;
+  /**
+   * Tokens the providers said they used, prompt, reasoning and reply: what
+   * Groq's limits of 8,000 a minute and 200,000 a day count. A reply a
+   * provider turned down itself reports none, and counts as what it could
+   * have cost (`estimateTokens`).
+   */
+  tokens: number;
+  /**
+   * Requests a provider answered, usably or not — or replied to before its
+   * last word, a wait, which leaves the request unanswered for the stop rule
+   * but paid for: zero when nothing was produced.
+   */
   answered: number;
 };
 
-/** Thrown inside a run when every provider has refused, to stop it. */
+/** Thrown inside a run when every provider has refused for the day, to stop it. */
 class BudgetExhausted extends Error {
   constructor(readonly reason: unknown) {
     super('Every model provider refused.');
@@ -812,39 +1075,14 @@ class BudgetExhausted extends Error {
   }
 }
 
-/** HTTP status of a provider error, looking through the SDK's retry wrapper. */
-function statusOf(error: unknown): number | undefined {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
-    const o = current as { statusCode?: unknown; status?: unknown; lastError?: unknown; cause?: unknown };
-    if (typeof o.statusCode === 'number') return o.statusCode;
-    if (typeof o.status === 'number') return o.status;
-    current = o.lastError ?? o.cause;
-  }
-  return undefined;
-}
-
-/**
- * A refusal about the account or its quota rather than about the text: the
- * next batch would be refused just the same, so the run should stop rather
- * than spend the rest of the article failing.
- */
-function isRefusal(error: unknown): boolean {
-  const status = statusOf(error);
-  if (status === 401 || status === 402 || status === 403 || status === 429) return true;
-  const message = error instanceof Error ? error.message : String(error);
-  return /rate.?limit|too many requests|quota|resource.?exhausted|insufficient[_ ]?credits|permission-denied|requires? (more )?credits/i.test(
-    message,
-  );
-}
-
 /**
  * A provider answered, and the answer was not what was asked for: text that
- * is not the JSON list, or does not match it, or a reply that stopped before
- * it ended (its length limit, a content filter).
+ * is not the JSON list, or does not match it — whether the SDK or the
+ * provider found it out (`isBadReply`) — or a reply that stopped before it
+ * ended (its length limit, a content filter).
  */
 function isUnusableReply(error: unknown): boolean {
-  return NoObjectGeneratedError.isInstance(error) || NoOutputGeneratedError.isInstance(error);
+  return NoObjectGeneratedError.isInstance(error) || NoOutputGeneratedError.isInstance(error) || isBadReply(error);
 }
 
 /** Whether some provider of a failed chain answered at all, however uselessly. */
@@ -854,14 +1092,31 @@ function replied(error: unknown): boolean {
 
 /** What a request every provider failed means for the run, and for its strings. */
 type Failure =
-  /** Every provider refused, for reasons about the account or its quota: stop. */
+  /** Every provider refused for the day: out of credit, or out of a daily quota. Stop. */
   | 'exhausted'
+  /** Every provider refused, some only for now (a rate limit): nothing about the text. */
+  | 'refused'
   /** A provider answered with something unusable: halve, and hold it against the strings. */
   | 'unusable'
-  /** Every provider ran out of time on a batch long enough to explain it: halve, hold nothing. */
+  /**
+   * Too large for a provider's per-minute budget, which it said at once
+   * (413): halve until it fits, hold nothing — unless it is one string.
+   * Neither an answer nor an outage: the provider is up, and wrote nothing.
+   */
+  | 'too-large'
+  /**
+   * No provider wrote it before its deadline, on text long enough to explain
+   * that: halve, hold nothing — unless it is one string. Still a request
+   * nobody answered, so a run that waits sends the halves after its wait.
+   */
   | 'slow'
   /** Nothing answered, for reasons that are not about the text: hold nothing. */
   | 'unavailable';
+
+/** Whether a failure is a request no provider answered: what an outage is made of (`MAX_UNANSWERED`). */
+function isUnanswered(failure: Failure): boolean {
+  return failure === 'refused' || failure === 'unavailable' || failure === 'slow';
+}
 
 /**
  * Reads a failed request, cause by cause, for evidence against its text.
@@ -875,21 +1130,55 @@ type Failure =
  * page views during an outage left an article's strings stuck for public
  * readers for good, though the very same request worked a minute later.
  *
+ * Nor is a timeout evidence when the provider spent part of its deadline
+ * waiting out a rate limit (fallback.ts): asked again with a third of its time
+ * left, it missed a deadline it was never given in full. And no timeout is a
+ * refusal, whatever its wording: one read as a rate limit ended a run a
+ * reader was waiting on, as if every provider had refused.
+ *
+ * Refusals end the run only when every one of them is for the day — out of
+ * credit, or a daily quota spent (circuit.ts). A per-minute limit among them
+ * means a provider that will answer shortly: it ended the production run of
+ * 2026-10-28 after four articles, on a Groq refusal that said "try again in
+ * 510ms". What counts is each provider's last word: one that replied badly
+ * and then said to wait is asked again after the wait, not halved for the
+ * bad reply. Its reply was paid for (`replied`), but the request is still
+ * one no provider answered.
+ *
  * Anything other than the chain's own failure report is a provider list that
  * could not even be built (no key configured), which is as final as every
  * provider refusing.
  */
 function judgeFailure(error: unknown, batch: readonly string[]): Failure {
   if (!(error instanceof AllProvidersFailedError)) return 'exhausted';
-  const causes = error.failures.map((failure) => failure.error);
-  if (causes.every((cause) => isRefusal(cause))) return 'exhausted';
+  // Each provider's last word: a later failure of the same provider replaces its earlier one.
+  const causes = [...new Map(error.failures.map((failure) => [failure.name, failure.error])).values()];
+  const refusals = causes.map((cause) => (cause instanceof ResponseTimeoutError ? null : refusalOf(cause)));
+  if (refusals.every((refusal) => refusal === 'permanent' || refusal === 'daily')) return 'exhausted';
+  if (refusals.every((refusal) => refusal !== null)) return 'refused';
   if (replied(error)) return 'unusable';
-  if (causes.some((cause) => cause instanceof ResponseTimeoutError)) {
+  // Too large for a provider's per-minute budget, prompt and ceiling together
+  // (Groq's 413 "Request too large"): half of it is not.
+  if (causes.some((cause) => statusOf(cause) === 413)) return batch.length === 1 ? 'unusable' : 'too-large';
+  if (causes.some((cause) => cause instanceof ResponseTimeoutError && !cause.afterWait)) {
     const chars = batch.reduce((n, text) => n + text.length, 0);
     if (chars < SLOW_TEXT_CHARS) return 'unavailable';
     return batch.length === 1 ? 'unusable' : 'slow';
   }
   return 'unavailable';
+}
+
+/**
+ * The soonest any rate-limited provider of a failed chain said it will
+ * answer, or undefined when none said.
+ */
+function soonestStatedWait(error: unknown, now: number): number | undefined {
+  if (!(error instanceof AllProvidersFailedError)) return undefined;
+  const waits = error.failures
+    .filter((failure) => refusalOf(failure.error) === 'rate-limit')
+    .map((failure) => statedWaitMs(failure.error, now))
+    .filter((wait): wait is number => wait !== undefined);
+  return waits.length > 0 ? Math.min(...waits) : undefined;
 }
 
 /**
@@ -940,11 +1229,28 @@ export function splitBatches(
  * outage, not the text. It is not held against its strings, and not halved
  * unless it timed out on enough text to explain the wait; two such requests in
  * a row end the run (`MAX_UNANSWERED`), and the strings wait for a later call.
+ * A run that can wait (`noAnswerWaitMs`) waits before the next request, which
+ * asks again for the same strings, and stops only when a request made after
+ * that wait goes unanswered too — the next call's first request, when the
+ * calls share a `silence`. A batch too large for a provider's minute is no
+ * outage: the provider said so at once, and gets the batch in halves, as
+ * small as it takes.
+ *
+ * Paced by the pacer, which hears what each request may cost when it takes
+ * its turn and how many tokens it used when it ends: a run given a budget of
+ * tokens a minute leaves the rest of the minute to the chat.
+ *
+ * Refusals are read for how long they last. A rate limit that states a short
+ * wait is sat out on the provider that stated it (fallback.ts); one that
+ * outlasts it is a batch nobody answered; and only when every provider has
+ * refused for the day — out of credit, or out of a daily quota — does the run
+ * stop on the spot (`exhausted`).
  *
  * Bounded in time three ways: no request starts after `deadline`, each
- * provider gets `requestTimeoutMs`, and `signal` abandons whatever is still
- * running. A provider chain is several providers long, so the per-provider
- * timeout alone bounds nothing: three that hang take three timeouts.
+ * provider gets `requestTimeoutMs`, rate-limit waits included, and `signal`
+ * abandons whatever is still running. A provider chain is several providers
+ * long, so the per-provider timeout alone bounds nothing: three that hang take
+ * three timeouts.
  */
 export async function translateStrings(
   strings: readonly string[],
@@ -959,70 +1265,161 @@ export async function translateStrings(
     deadline,
     signal,
     requestTimeoutMs = 60_000,
+    noAnswerWaitMs = 0,
     candidates = rewriteCandidates,
     now = Date.now,
     sleep = defaultSleep,
   } = options;
   const pacer = options.pacer ?? createPacer(minIntervalMs, now, sleep);
+  const silence = options.silence ?? createSilence();
 
   const translations: (string | null)[] = strings.map(() => null);
   const failedIndexes: number[] = [];
   let model: string | null = null;
   let requests = 0;
+  let calls = 0;
+  let tokens = 0;
   let answered = 0;
-  /** Requests in a row no provider answered. */
-  let unanswered = 0;
+  /** This call's last request went unanswered, and nothing answered after it (`TranslationRun`). */
+  let unavailable = false;
+  /** And it was refused for the minute. */
+  let rateLimited = false;
   let exhausted = false;
+  let outage = false;
   let stop = false;
 
   const outOfTime = (): boolean => (deadline !== undefined && now() >= deadline) || signal?.aborted === true;
 
   const gotAnswer = (): void => {
     answered += 1;
-    unanswered = 0;
+    silence.unanswered = 0;
+    unavailable = false;
+    rateLimited = false;
   };
-  const gotNoAnswer = (): void => {
-    unanswered += 1;
-    if (unanswered >= MAX_UNANSWERED) stop = true;
+  /**
+   * A request no provider answered. `afterWait` says it went out after the
+   * wait that followed the last one: in a run that waits, only such a request
+   * can be the second of an outage (`MAX_UNANSWERED`), so two workers whose
+   * batches met one busy minute together are both asked again first.
+   */
+  const gotNoAnswer = (failure: Failure, afterWait: boolean): void => {
+    silence.unanswered += 1;
+    silence.rateLimited = failure === 'refused';
+    unavailable = true;
+    rateLimited = failure === 'refused';
+    if (silence.unanswered >= MAX_UNANSWERED && (noAnswerWaitMs <= 0 || afterWait)) {
+      stop = true;
+      outage = true;
+    }
   };
+  /**
+   * In a run that waits, holds every request back after one no provider
+   * answered: for `noAnswerWaitMs`, or for as long as the soonest
+   * rate-limited provider said, when that is longer. Never for less: a
+   * provider still refusing after the chain sat out three of its "510ms"
+   * waits would only meet the same busy minute half a second later.
+   */
+  const holdOff = (error: unknown): void => {
+    if (noAnswerWaitMs <= 0) return;
+    const stated = soonestStatedWait(error, now()) ?? 0;
+    const until = now() + Math.min(Math.max(stated, noAnswerWaitMs), MAX_NO_ANSWER_WAIT_MS);
+    silence.resumeAt = Math.max(silence.resumeAt, until);
+  };
+  /** Sits out the wait `holdOff` set, if there is one. False when the run is to stop instead. */
+  const waitToAskAgain = async (size: number): Promise<boolean> => {
+    const wait = silence.resumeAt - now();
+    if (wait <= 0) return true;
+    if (deadline !== undefined && silence.resumeAt >= deadline) return false;
+    const why = silence.rateLimited ? 'the providers asked to wait' : 'no provider answered the last request';
+    logWarn('translate', `${why}; asking for ${size} strings in ${Math.round(wait / 1000)} s`);
+    return (await waitOut(wait, sleep, signal)) && !stop;
+  };
+  /**
+   * Waits for a request's turn: the wait after one no provider answered,
+   * then the pacer's turn — and the wait again, when a request nobody
+   * answered set one while this one waited for its turn. Sent then, it met
+   * the same busy minute as that request, and passed for the second of an
+   * outage. `claim` is what the request may cost. False when the run is to
+   * stop instead.
+   */
+  const turn = async (size: number, claim: number): Promise<boolean> => {
+    for (;;) {
+      if (stop || outOfTime() || !(await waitToAskAgain(size))) return false;
+      const sat = silence.resumeAt;
+      if (!(await pacer.take(deadline, claim))) return false;
+      const heldOff = silence.resumeAt !== sat && now() < silence.resumeAt;
+      if (!stop && !outOfTime() && !heldOff) return true;
+      // Given back unused; the next pass takes another.
+      pacer.spend?.(0, claim);
+    }
+  };
+
+  type Failed = { failure: Exclude<Failure, 'exhausted'> };
 
   /**
    * One request: the translations, or why there are none — 'unusable' when
-   * the reply cannot be used, 'slow' or 'unavailable' when no provider
-   * answered (`judgeFailure`), 'skipped' when it was never made, or made and
-   * abandoned, because the run is out of time.
+   * the reply cannot be used, 'too-large' when it must be sent in halves,
+   * 'refused', 'slow' or 'unavailable' when no provider answered
+   * (`judgeFailure`); 'skipped' when it was never made, or made and
+   * abandoned, because the run is out of time or has stopped.
+   *
+   * Every call it makes is counted. Its turn claims what it may cost, and the
+   * claim is settled at the tokens its calls say they used, for the next
+   * turn to wait on.
    */
-  const request = async (batch: string[]): Promise<string[] | Exclude<Failure, 'exhausted'> | 'skipped'> => {
-    // Before every request, after waiting for its turn: the halves of a
-    // halved batch are requests like any other.
-    if (stop || outOfTime() || !(await pacer.take(deadline)) || outOfTime()) return 'skipped';
-    // One line per string whatever it contains: a table cell with a line
-    // break in it would otherwise read as two entries and shift the count.
-    const numbered = batch.map((s, n) => `${n + 1}. ${JSON.stringify(s)}`).join('\n');
+  const request = async (batch: string[]): Promise<string[] | Failed | 'skipped'> => {
+    /**
+     * What a call that was paid for and says nothing of it is taken to have
+     * cost, and what this request's turn claims until it ends.
+     */
+    const unreported = estimateTokens(batch, lang);
+    // Before every request, the halves of a halved batch included.
+    if (!(await turn(batch.length, unreported))) return 'skipped';
+    // Sent after every wait set so far (`turn`): with a request still
+    // unanswered, this one is the second of an outage if it goes unanswered too.
+    const afterWait = noAnswerWaitMs > 0 && silence.unanswered > 0;
+    let spent = 0;
     try {
       const chain = candidates();
       requests += 1;
       const { value, candidate } = await withFallback(
         chain,
-        (c, attempt) =>
-          generateText({
+        (c, attempt) => {
+          calls += 1;
+          return generateText({
             model: c.model,
             maxRetries: attempt.maxRetries,
             // This provider's deadline and the run's end, together.
             abortSignal: attempt.abortSignal,
             output: Output.object({ schema }),
             instructions: INSTRUCTIONS,
-            prompt: `Target language: ${lang}\n\nTranslate these ${batch.length} strings:\n\n${numbered}`,
+            prompt: promptFor(batch, lang),
             temperature: 0,
-          }).then((r) => r.output),
-        { timeoutMs: requestTimeoutMs, signal },
+            maxOutputTokens: maxReplyTokens(batch),
+          }).then(
+            (result) => {
+              spent += usedTokens(result.usage) ?? unreported;
+              return result.output;
+            },
+            (error: unknown) => {
+              // A reply written and then turned down was counted all the same.
+              if (isUnusableReply(error)) {
+                spent += usedTokens(NoObjectGeneratedError.isInstance(error) ? error.usage : undefined) ?? unreported;
+              }
+              throw error;
+            },
+          );
+        },
+        // A short rate limit is waited out on the provider that states it,
+        // on this run's clock (the default timer when none was given).
+        { timeoutMs: requestTimeoutMs, signal, maxWaitMs: RATE_LIMIT_WAIT_MS, now, sleep: options.sleep },
       );
       gotAnswer();
       if (value.translations.length !== batch.length) {
         logWarn('translate', `asked for ${batch.length} strings, got ${value.translations.length}`, {
           model: candidate.name,
         });
-        return 'unusable';
+        return { failure: 'unusable' };
       }
       model = candidate.name;
       return value.translations;
@@ -1031,24 +1428,45 @@ export async function translateStrings(
       if (signal?.aborted) return 'skipped';
       const failure = judgeFailure(error, batch);
       if (failure === 'exhausted') throw new BudgetExhausted(error);
-      // A provider that replied, however uselessly, is up. A long string that
-      // ran out of time says nothing either way.
-      if (replied(error)) gotAnswer();
-      else if (failure !== 'unusable') gotNoAnswer();
+      if (isUnanswered(failure)) {
+        // A reply before the provider's last word was paid for all the same.
+        // But the request was not answered: its provider said to wait, and
+        // its batch is asked again after that wait. Taken for an answer, it
+        // reset the count, and a run of busy minutes passed for answers that
+        // are no use.
+        if (replied(error)) answered += 1;
+        gotNoAnswer(failure, afterWait);
+        holdOff(error);
+      } else if (replied(error)) {
+        gotAnswer();
+      }
       logWarn('translate', `batch of ${batch.length} failed (${failure}): ${describeError(error).message}`);
-      return failure;
+      return { failure };
+    } finally {
+      tokens += spent;
+      pacer.spend?.(spent, unreported);
     }
   };
 
-  const translateBatch = async (start: number, batch: string[], depth: number): Promise<void> => {
-    const out = await request(batch);
+  /**
+   * One batch, and what its failure calls for. `splits` counts the halvings
+   * an unusable or slow reply has had (`MAX_SPLITS`); halving a batch too
+   * large for the minute does not use them up.
+   */
+  const translateBatch = async (start: number, batch: string[], splits: number): Promise<void> => {
+    let out = await request(batch);
+    /*
+     * No provider answered. A run that can wait asks again for the same
+     * strings, after the wait that request set (`holdOff`, sat out in
+     * `request`); unanswered again, it has stopped the run (`gotNoAnswer`),
+     * and this request is never made.
+     */
+    const noAnswer = typeof out === 'object' && !Array.isArray(out) && (out.failure === 'refused' || out.failure === 'unavailable');
+    if (noAnswerWaitMs > 0 && noAnswer) out = await request(batch);
     if (out === 'skipped') {
       stop = true;
       return;
     }
-    // Nobody answered: nothing to learn about these strings, and halving
-    // cannot bring a provider back.
-    if (out === 'unavailable') return;
     if (Array.isArray(out)) {
       out.forEach((text, k) => {
         if (text.trim() === '') failedIndexes.push(start + k);
@@ -1056,15 +1474,34 @@ export async function translateStrings(
       });
       return;
     }
-    // 'unusable' or 'slow': half the text may well get through.
-    if (batch.length > 1 && depth < MAX_SPLITS) {
+    // Every provider refused, some only for the minute, and this run has no
+    // time to wait for them: the next request would be refused just the same.
+    if (out.failure === 'refused') {
+      if (noAnswerWaitMs <= 0) {
+        stop = true;
+        outage = true;
+      }
+      return;
+    }
+    // Nobody answered: nothing to learn about these strings, and halving
+    // cannot bring a provider back.
+    if (out.failure === 'unavailable') return;
+    // Too large for the minute: halved until it fits, since saying so costs nothing.
+    if (out.failure === 'too-large' && batch.length > 1) {
       const half = Math.ceil(batch.length / 2);
-      await translateBatch(start, batch.slice(0, half), depth + 1);
-      await translateBatch(start + half, batch.slice(half), depth + 1);
+      await translateBatch(start, batch.slice(0, half), splits);
+      await translateBatch(start + half, batch.slice(half), splits);
+      return;
+    }
+    // 'unusable' or 'slow': half the text may well get through.
+    if (batch.length > 1 && splits < MAX_SPLITS) {
+      const half = Math.ceil(batch.length / 2);
+      await translateBatch(start, batch.slice(0, half), splits + 1);
+      await translateBatch(start + half, batch.slice(half), splits + 1);
       return;
     }
     // Only an unusable answer is held against its strings.
-    if (out === 'unusable') for (let k = 0; k < batch.length; k++) failedIndexes.push(start + k);
+    if (out.failure === 'unusable') for (let k = 0; k < batch.length; k++) failedIndexes.push(start + k);
   };
 
   const batches = splitBatches(strings, batchSize, maxBatchChars);
@@ -1082,7 +1519,7 @@ export async function translateStrings(
       } catch (error) {
         if (!(error instanceof BudgetExhausted)) throw error;
         if (!exhausted) {
-          logWarn('translate', `every provider refused; stopping: ${describeError(error.reason).message}`);
+          logWarn('translate', `every provider refused for the day; stopping: ${describeError(error.reason).message}`);
         }
         exhausted = true;
         stop = true;
@@ -1101,8 +1538,12 @@ export async function translateStrings(
     failedIndexes,
     skipped: untranslated - failedIndexes.length,
     exhausted,
-    unavailable: unanswered > 0,
+    unavailable,
+    rateLimited,
+    outage,
     requests,
+    calls,
+    tokens,
     answered,
   };
 }
@@ -1118,16 +1559,25 @@ export type ArticleTranslation = AppliedMemory & {
   failures: FailureLog;
   /** The provider that answered last in this call, or null when none answered. */
   model: string | null;
-  /** Every provider refused: their budget is spent for now. */
+  /** Every provider refused for the day: their budget is spent until it renews. */
   exhausted: boolean;
   /**
    * The call ended on requests no provider answered — server errors, the
-   * network, timeouts — rather than on anything about the text.
+   * network, timeouts, rate limits that outlasted every wait — rather than on
+   * anything about the text.
    */
   unavailable: boolean;
-  /** Model requests made, retries included. */
+  /** And the last of those was refused for the minute, by a provider that is up (`TranslationRun`). */
+  rateLimited: boolean;
+  /** Requests no provider answered stopped the call (`TranslationRun`): ask again later, not now. */
+  outage: boolean;
+  /** Requests made of the provider chain: batches, halves, and batches asked again after a wait. */
   requests: number;
-  /** Requests a provider answered, usably or not: zero when this call produced nothing to pay for. */
+  /** Calls to providers, every one the chain made: fallbacks and same-provider retries included. */
+  calls: number;
+  /** Tokens the providers said they used (`TranslationRun`). */
+  tokens: number;
+  /** Requests a provider answered or replied to (`TranslationRun`): zero when this call produced nothing to pay for. */
   answered: number;
 };
 
@@ -1170,24 +1620,41 @@ export async function translateArticle(
   let translated = 0;
   let failed = 0;
   let requests = 0;
+  let calls = 0;
+  let tokens = 0;
   let answered = 0;
   let model: string | null = null;
   let exhausted = false;
   let unavailable = false;
+  let rateLimited = false;
+  let outage = false;
+  // One pace for both runs below: each used to start its own, and the first
+  // retry of an old failure went out on the heels of the last fresh request.
+  const pacer = options.pacer ?? createPacer(options.minIntervalMs ?? 0, options.now, options.sleep);
+  // And one count of requests nobody answered, for the same reason (`Silence`).
+  const silence = options.silence ?? createSilence();
+  const waits = (options.noAnswerWaitMs ?? 0) > 0;
 
   const run = async (indexes: number[], batchSize?: number): Promise<void> => {
-    // Providers that refused, or stopped answering, a moment ago will not
-    // take the retries either.
-    if (indexes.length === 0 || exhausted || unavailable) return;
+    // Providers that refused for the day, or stopped answering, a moment ago
+    // will not take the retries either. A run that waits gives up only on an
+    // outage: after one request nobody answered, the retries go out after
+    // the wait, and the first of them unanswered is the outage.
+    if (indexes.length === 0 || exhausted || outage || (unavailable && !waits)) return;
+    const shared = { ...options, pacer, silence };
     const result = await translateStrings(
       indexes.map((i) => extraction.strings[i]!),
       lang,
-      batchSize === undefined ? options : { ...options, batchSize },
+      batchSize === undefined ? shared : { ...shared, batchSize },
     );
     requests += result.requests;
+    calls += result.calls;
+    tokens += result.tokens;
     answered += result.answered;
     exhausted ||= result.exhausted;
+    outage ||= result.outage;
     unavailable = result.unavailable;
+    rateLimited = result.rateLimited;
     model = result.model ?? model;
     result.translations.forEach((text, k) => {
       if (text === null) return;
@@ -1216,7 +1683,11 @@ export async function translateArticle(
     model,
     exhausted,
     unavailable,
+    rateLimited,
+    outage,
     requests,
+    calls,
+    tokens,
     answered,
   };
 }

@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
+import { APICallError } from 'ai';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetCircuits } from '@/lib/rag/circuit';
 import { rawQuery, type DbHandle } from '@/lib/db/create-db';
 import { upsertArticle } from '@/lib/db/wiki-repo';
 import type { ArticleDoc } from '@/lib/wiki/article-types';
@@ -37,6 +39,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   resetMemoryTableState();
+  resetCircuits();
   lines = [];
   await handle.db.execute(sql`TRUNCATE pages CASCADE`);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -101,6 +104,7 @@ const RUN: QueueRun = {
   chunk: 400,
   batchSize: 40,
   rpm: 0,
+  tpm: 0,
   concurrency: 1,
   order: 'smallest',
   slugs: null,
@@ -114,6 +118,39 @@ const run = (mock: ReturnType<typeof mockTranslator>, extra: Partial<QueueRun> =
     log: (line) => lines.push(line),
     ...extra,
   });
+
+/** A clock that only moves when the run waits on it, so a minute's wait costs a test nothing. */
+function fakeClock() {
+  let time = 1_000_000;
+  const waits: number[] = [];
+  return {
+    now: () => time,
+    sleep: async (ms: number) => {
+      waits.push(ms);
+      time += ms;
+    },
+    waits,
+  };
+}
+
+function refused(status: number, message: string): APICallError {
+  return new APICallError({
+    message,
+    url: 'https://provider.test/v1/chat/completions',
+    requestBodyValues: {},
+    statusCode: status,
+    isRetryable: false,
+  });
+}
+
+/** Groq's refusal, per minute or per day, as it worded it in production. */
+const groqLimit = (per: 'minute' | 'day', wait: string) =>
+  refused(
+    429,
+    'Rate limit reached for model `openai/gpt-oss-120b` in organization `org_test` service tier `on_demand` on ' +
+      `tokens per ${per} (${per === 'day' ? 'TPD' : 'TPM'}): Limit 8000, Used 7742, Requested 1963. ` +
+      `Please try again in ${wait}.`,
+  );
 
 const shown = async (slug: string) => (await loadTranslationJob(handle.db, slug, 'es'))?.published ?? null;
 
@@ -165,28 +202,253 @@ describe('translateQueue (pnpm translate:es)', () => {
     expect(log).not.toContain('presupuesto');
   });
 
-  it('stops after two articles no provider answers, holding nothing against their strings (IT-2)', async () => {
+  it('stops after two articles no provider answers, a minute between requests, holding nothing against their strings (IT-2)', async () => {
     for (const slug of ['down-1', 'down-2', 'down-3']) await seed(slug, [`Sentence of ${slug}.`]);
     const mock = mockTranslator(() => unavailable(503));
-    const result = await run(mock);
+    const clock = fakeClock();
+    const result = await run(mock, { translate: { candidates: mock.candidates, now: clock.now, sleep: clock.sleep } });
 
     expect(result.stopped).toEqual({ slug: 'down-2', reason: 'unavailable' });
-    expect(mock.calls.flat()).not.toContain('down-3');
+    // The first article's request, asked again a minute later; then the
+    // second's, a minute after that — still the outage, so it ends at once.
+    const first = ['down-1', 'Sentence of down-1.'];
+    const second = ['down-2', 'Sentence of down-2.'];
+    expect(mock.calls).toEqual([first, first, second]);
+    expect(clock.waits).toEqual([60_000, 60_000]);
     const failures = await rawQuery<{ failures: Record<string, number> }>(
       handle.db,
       sql`SELECT failures FROM article_translation_memory`,
     );
     expect(failures.map((row) => row.failures)).toEqual([{}, {}]);
-    expect(lines.join('\n')).toContain('sin respuesta de ningún proveedor');
+    const log = lines.join('\n');
+    expect(log).toContain('sin respuesta de ningún proveedor');
+    expect(log).toContain('— ningún proveedor respondió');
+    expect(log).not.toContain('límite');
   });
 
-  it('stops at the first article every provider refuses, and says the budget is spent', async () => {
+  it('stops at the first article every provider refuses for the day, and says the budget is spent', async () => {
     for (const slug of ['spent-1', 'spent-2']) await seed(slug, [`Sentence of ${slug}.`]);
-    const mock = mockTranslator(() => refusal(429));
-    const result = await run(mock);
+    const groq = mockTranslator(() => groqLimit('day', '12m37.248s'), 'groq/openai/gpt-oss-120b');
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const clock = fakeClock();
+    const result = await run(groq, {
+      translate: { candidates: () => [groq.candidate, broke.candidate], now: clock.now, sleep: clock.sleep },
+    });
 
     expect(result.stopped).toEqual({ slug: 'spent-1', reason: 'exhausted' });
-    expect(mock.calls).toHaveLength(1);
+    expect(groq.calls).toHaveLength(1);
+    expect(clock.waits).toEqual([]);
     expect(lines.join('\n')).toContain('ningún proveedor tenía presupuesto');
+  });
+
+  it('waits out Groq’s per-minute limit and goes on, where the run of 2026-10-28 stopped', async () => {
+    for (const slug of ['meadows', 'mountain']) await seed(slug, [`Sentence of ${slug}.`, `Another of ${slug}.`]);
+    // Groq refuses the second article's first request, once, as it did in production.
+    const groq = mockTranslator(
+      (strings, call) => (call === 1 ? groqLimit('minute', '510ms') : es(strings)),
+      'groq/openai/gpt-oss-120b',
+    );
+    const broke = mockTranslator(() => refusal(402), 'openrouter/x-ai/grok-4.3');
+    const clock = fakeClock();
+    const result = await run(groq, {
+      slugs: ['meadows', 'mountain'],
+      translate: { candidates: () => [groq.candidate, broke.candidate], now: clock.now, sleep: clock.sleep },
+    });
+
+    expect(result).toMatchObject({ stopped: null, articles: 2, strings: 6 });
+    expect(clock.waits).toEqual([510]);
+    expect(broke.calls).toHaveLength(0);
+    expect((await shown('mountain'))?.title).toBe('ES:mountain');
+    // One request each, three calls to Groq: the refused one counts. Twenty
+    // tokens a reply, as the mock reports them.
+    expect(result).toMatchObject({ requests: 2, calls: 3, tokens: 40 });
+    expect(lines.at(-1)).toBe('\nTraducidos 6 cadenas en 2 artículos, con 2 pedidos (3 llamadas a proveedores, 40 tokens).');
+  });
+
+  it('stops as rate-limited, not as spent nor as silence, when a rate limit outlasts every wait', async () => {
+    for (const slug of ['limited-1', 'limited-2', 'limited-3']) await seed(slug, [`Sentence of ${slug}.`]);
+    const mock = mockTranslator(() => refusal(429));
+    const clock = fakeClock();
+    const result = await run(mock, { translate: { candidates: mock.candidates, now: clock.now, sleep: clock.sleep } });
+
+    expect(result.stopped).toEqual({ slug: 'limited-2', reason: 'rate-limited' });
+    expect(mock.calls).toHaveLength(3);
+    expect(clock.waits).toEqual([60_000, 60_000]);
+    const log = lines.join('\n');
+    expect(log).not.toContain('presupuesto');
+    expect(log).not.toContain('ningún proveedor respondió');
+    expect(log).toContain('— límite por minuto, aun tras esperar');
+    expect(log).toContain('siguieron limitando por minuto');
+  });
+
+  it('halves a batch too large for the minute, and asks a refused half again after the wait', async () => {
+    for (const slug of ['large-1', 'large-2']) await seed(slug, [`First of ${slug}.`, `Second of ${slug}.`, `Third of ${slug}.`]);
+    // Each article's batch is too large for Groq's minute; each half is then refused once, with a wait.
+    const refusedOnce = new Set<string>();
+    const groq = mockTranslator((strings) => {
+      if (strings.length > 2) {
+        return refused(
+          413,
+          'Request too large for model `openai/gpt-oss-120b` in organization `org_test` service tier `on_demand` on ' +
+            'tokens per minute (TPM): Limit 8000, Requested 9311, please reduce your message size and try again.',
+        );
+      }
+      if (refusedOnce.has(strings[0]!)) return es(strings);
+      refusedOnce.add(strings[0]!);
+      return groqLimit('minute', '45s');
+    }, 'groq/openai/gpt-oss-120b');
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const clock = fakeClock();
+    const result = await run(groq, {
+      slugs: ['large-1', 'large-2'],
+      translate: { candidates: () => [groq.candidate, broke.candidate], now: clock.now, sleep: clock.sleep },
+    });
+
+    expect(result).toMatchObject({ stopped: null, articles: 2, strings: 8 });
+    // Every refused half asked again after a minute's wait.
+    expect(clock.waits).toEqual([60_000, 60_000, 60_000, 60_000]);
+    expect((await shown('large-2'))?.title).toBe('ES:large-2');
+  });
+
+  it('keeps --rpm between articles too, not only inside one', async () => {
+    for (const slug of ['paced-1', 'paced-2', 'paced-3']) await seed(slug, [`Sentence of ${slug}.`]);
+    const mock = mockTranslator();
+    const clock = fakeClock();
+    await run(mock, { rpm: 6, translate: { candidates: mock.candidates, now: clock.now, sleep: clock.sleep } });
+
+    expect(mock.calls).toHaveLength(3);
+    // Ten seconds apart, the first request of each article included.
+    expect(clock.waits).toEqual([10_000, 10_000]);
+  });
+
+  it('paces a run by the tokens its requests use, leaving the rest of each minute to the chat', async () => {
+    for (const slug of ['tokens-1', 'tokens-2', 'tokens-3']) await seed(slug, [`Sentence of ${slug}.`]);
+    const mock = mockTranslator();
+    const clock = fakeClock();
+    // Twenty tokens a request, at 1,200 a minute: a second each, across articles.
+    const result = await run(mock, { tpm: 1_200, translate: { candidates: mock.candidates, now: clock.now, sleep: clock.sleep } });
+
+    expect(mock.calls).toHaveLength(3);
+    expect(clock.waits).toEqual([1_000, 1_000]);
+    expect(result.tokens).toBe(60);
+    expect(lines.some((line) => line.startsWith('   1. tokens-1') && line.includes('2 cadenas, 20 tokens'))).toBe(true);
+  });
+
+  it.each([4, 400])(
+    'goes on past a round whose last request nobody answered, once its wait is over (--chunk %i)',
+    async (chunk) => {
+      // Nine strings, batches of four. The first batch runs out of time, its
+      // first half is answered, and its second half, long, runs out of time
+      // too with no halving left: one request unanswered. With rounds of one
+      // batch that ended the round, and, taken for providers that stopped
+      // answering, the article.
+      const long = (n: number) => `Paragraph ${n}. ${'The Mistlands is a biome shrouded in thick fog, home to Seekers. '.repeat(17)}`;
+      await seed('lore', Array.from({ length: 8 }, (_, i) => long(i)));
+      const groq = mockTranslator(
+        (strings, call, signal) =>
+          call === 0 || call === 2
+            ? new Promise<string[]>((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)))
+            : es(strings),
+        'groq/openai/gpt-oss-120b',
+      );
+      const clock = fakeClock();
+      const result = await run(groq, {
+        batchSize: 4,
+        chunk,
+        translate: { candidates: groq.candidates, now: clock.now, sleep: clock.sleep, requestTimeoutMs: 50 },
+      });
+
+      // The next request asked after the wait that half set, whatever the round size.
+      expect(groq.calls.map((c) => c.length)).toEqual([4, 2, 2, 4, 1]);
+      expect(clock.waits).toEqual([60_000, 60_000]);
+      expect(result).toMatchObject({ stopped: null, articles: 1, strings: 7 });
+      expect((await loadTranslationJob(handle.db, 'lore', 'es'))?.memory?.size).toBe(7);
+    },
+  );
+
+  it.each([2, 400])(
+    'ends an article on a bad reply that met a busy minute twice, as rate-limited, whatever the round size (--chunk %i)',
+    async (chunk) => {
+      // Groq's reply fails its check, the retry meets a limit too long to sit
+      // out, and so does the same request a minute later: two requests in a
+      // row unanswered, the second after the wait. The bad reply was paid for
+      // and is no answer.
+      await seed('article', ['First sentence.', 'Second sentence.', 'Third sentence.']);
+      const groq = mockTranslator(
+        (strings, call) =>
+          call === 0
+            ? refused(400, "Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.")
+            : call <= 2
+              ? groqLimit('minute', '56s')
+              : es(strings),
+        'groq/openai/gpt-oss-120b',
+      );
+      const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+      const clock = fakeClock();
+      const result = await run(groq, {
+        batchSize: 2,
+        chunk,
+        translate: { candidates: () => [groq.candidate, broke.candidate], now: clock.now, sleep: clock.sleep },
+      });
+
+      expect(groq.calls).toHaveLength(3);
+      expect(clock.waits).toEqual([60_000]);
+      expect(result).toMatchObject({ stopped: null, articles: 0, strings: 0 });
+      expect(lines.some((line) => line.includes('— límite por minuto, aun tras esperar'))).toBe(true);
+    },
+  );
+
+  it('stops as rate-limited, not as answers that are no use, when every bad reply meets a minute too busy to wait out', async () => {
+    // Each batch: Groq's reply fails its check, the retry meets a limit too
+    // long to sit out, and so does the same request a minute later. Every
+    // reply was paid for, and none was an answer: scored as answers that are
+    // no use, three such articles stopped the run telling the operator to
+    // check the model.
+    for (const slug of ['busy-a', 'busy-b', 'busy-c', 'busy-d']) {
+      await seed(slug, [`One of ${slug}.`, `Two of ${slug}.`, `Three of ${slug}.`, `Four of ${slug}.`]);
+    }
+    const seen = new Map<string, number>();
+    const groq = mockTranslator((strings) => {
+      const asked = seen.get(strings[0]!) ?? 0;
+      seen.set(strings[0]!, asked + 1);
+      if (asked === 0) return refused(400, "Failed to validate JSON. Please adjust your prompt. See 'failed_generation' for more details.");
+      return asked <= 2 ? groqLimit('minute', '56s') : es(strings);
+    }, 'groq/openai/gpt-oss-120b');
+    const broke = mockTranslator(() => refusal(402), 'cerebras/gpt-oss-120b');
+    const clock = fakeClock();
+    const result = await run(groq, {
+      batchSize: 2,
+      chunk: 2,
+      slugs: ['busy-a', 'busy-b', 'busy-c', 'busy-d'],
+      translate: { candidates: () => [groq.candidate, broke.candidate], now: clock.now, sleep: clock.sleep },
+    });
+
+    // busy-a: the request and its re-ask a minute later, both refused. busy-b:
+    // its first request a minute after that, refused too, and the run stops.
+    expect(result.stopped).toEqual({ slug: 'busy-b', reason: 'rate-limited' });
+    expect(groq.calls.map((c) => c[0])).toEqual(['busy-a', 'busy-a', 'busy-a', 'busy-b', 'busy-b']);
+    expect(clock.waits).toEqual([60_000, 60_000]);
+    const log = lines.join('\n');
+    expect(lines.filter((line) => line.includes('— límite por minuto, aun tras esperar'))).toHaveLength(2);
+    expect(log).toContain('siguieron limitando por minuto');
+    expect(log).not.toContain('nada de lo que devuelven sirve');
+  });
+
+  it('saves every round of requests, so a run that dies costs only the one in flight', async () => {
+    await seed('long', ['One sentence.', 'Two sentences.', 'Three sentences.']);
+    // What the memory holds when each request goes out.
+    const saved: number[] = [];
+    const mock = mockTranslator(async (strings) => {
+      const rows = await rawQuery<{ entries: Record<string, string> }>(
+        handle.db,
+        sql`SELECT entries FROM article_translation_memory`,
+      );
+      saved.push(Object.keys(rows[0]?.entries ?? {}).length);
+      return es(strings);
+    });
+    await run(mock, { batchSize: 2, chunk: 2 });
+
+    expect(mock.calls.map((c) => c.length)).toEqual([2, 2]);
+    expect(saved).toEqual([0, 2]);
   });
 });

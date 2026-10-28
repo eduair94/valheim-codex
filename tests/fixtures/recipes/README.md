@@ -20,6 +20,11 @@ the shape of `tests/fixtures/Iron_Sword.json` and the other saved pages one
 directory up. `sections` and `showtoc` are not there because `prop` does not
 ask for them; nothing reads them.
 
+The last seven in the table below were fetched with the same call on
+2026-10-28, each once, for the wiki errors the recipe graph has to settle
+(`src/lib/craft/recipe-overrides.ts`); their revisions were the ones that
+day's crawl had read.
+
 | File | Page id | Revision | What it pins |
 |---|---|---|---|
 | `Bronze_Nails.json` | 871 | 48138 | a yield, `<b>Crafts 20</b>` before the list |
@@ -39,6 +44,13 @@ ask for them; nothing reads them.
 | `Anti-Sting_Concoction.json` | 6283 | 47707 | a second infobox titled like its page |
 | `Root_Set.json` | 3612 | 51827 | "Root" linked to the disambiguation page, not the item |
 | `Artisan_Table.json` | 1162 | 49687 | a station's table of extensions, the only place the Artisan Press's recipe is stated |
+| `Staff_of_Protection.json` | 4365 | 51716 | a table of upgrades with a fourth quality the infobox leaves out, at twice the third step's cost |
+| `Wood_Tower_Shield.json` | 1115 | 47835 | a table of upgrades that disagrees with the infobox on the first quality (6 Leather scraps, not 4) |
+| `Pointy_Hat.json` | 4861 | 47889 | the same, 3 Deer hide where the infobox says 2, and a "Total" column after the qualities |
+| `Fishing_Hat.json` | 4644 | 51644 | a table of upgrades labelled "Cost" that runs eleven linked fish into one line; a fourth step twice the third in infobox and table alike |
+| `Black_Metal_Sword.json` | 1134 | 51857 | a fourth step twice the third, in the infobox and the table alike |
+| `Black_Metal_Atgeir.json` | 999 | 51721 | a fourth step the infobox states by the game's rule and the table doubles |
+| `Padded_Armor.json` | 1517 | 51646 | an armor set whose Chest and Legs tabs repeat the helmet's costs |
 
 ## Refreshing one
 

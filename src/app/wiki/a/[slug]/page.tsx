@@ -7,15 +7,18 @@ import type { AskTarget } from '@/components/wiki/article/ask-link';
 import { isAutomatedReader } from '@/components/wiki/article/crawler';
 import { loginHref } from '@/lib/auth/access';
 import { getChatPrincipal } from '@/lib/auth/principal-server';
-import { getArticlePage, type ArticlePage } from '@/lib/wiki/data';
+import { getCraftView, type CraftView } from '@/lib/craft/data';
+import { getArticlePage, getBrowseAxes, type ArticlePage } from '@/lib/wiki/data';
 import { canRequestTranslation } from '@/lib/wiki/translate-policy';
 import { articleHref, chatAboutHref } from '@/lib/routes';
 import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
 import { strings, type Lang } from '@/lib/i18n/strings';
 import { siteOpenGraph } from '@/lib/site';
-// The article's own styles: its text, tables and infobox. The shell's are in globals.css.
+// The article's own styles: its text, tables and infobox, and its crafting
+// card and sections. The shell's are in globals.css.
 import '@/app/styles/prose.css';
 import '@/app/styles/tables.css';
+import '@/app/styles/craft.css';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,13 +101,22 @@ export default async function ArticleRoutePage({ params }: Params) {
    * the names it links (see `getArticlePage`). The route's layout made this
    * same call before anything was sent, and sent unknown and misspelled
    * addresses away; here it is answered from React's per-request cache.
+   *
+   * Beside it, the item's slice of the recipe graph, for the craft card and
+   * the crafting sections. It never takes the article down: `getCraftView`
+   * answers null, and says so in the log, when the graph cannot be read, and
+   * the page is then the article as it was, recipe rows and all.
    */
-  const page = await getArticlePage(slug, lang);
+  const [page, craft] = await Promise.all([getArticlePage(slug, lang), getCraftView(slug, lang).catch(() => null)]);
   if (!page) notFound();
 
   // A broken cookie must never take the article down with it: it reads as
   // signed out, which only changes where "ask about this" leads.
-  const [principal, requestHeaders] = await Promise.all([getChatPrincipal().catch(() => null), headers()]);
+  const [principal, requestHeaders, facet] = await Promise.all([
+    getChatPrincipal().catch(() => null),
+    headers(),
+    stationFacet(craft, lang),
+  ]);
   const t = strings(lang);
 
   /*
@@ -127,5 +139,33 @@ export default async function ArticleRoutePage({ params }: Params) {
    */
   const canTranslate = canRequestTranslation(principal) && !isAutomatedReader(requestHeaders.get('user-agent'));
 
-  return <ArticleView page={page} lang={lang} ask={ask} canTranslate={canTranslate} />;
+  return (
+    <ArticleView
+      page={page}
+      lang={lang}
+      ask={ask}
+      canTranslate={canTranslate}
+      craft={craft}
+      stationFacet={facet}
+    />
+  );
+}
+
+/**
+ * For a station's article, the station as the category lists filter by it,
+ * for "Qué se fabrica acá": the browse page's own station names, matched to
+ * the article ignoring case, since the wiki titles the article "Black Forge"
+ * and writes its items' Source rows "Black forge". Null for anything else, a
+ * station no article names, or when the list cannot be read: the link is
+ * left out rather than leading to an empty list.
+ */
+async function stationFacet(craft: CraftView | null, lang: Lang): Promise<string | null> {
+  if (!craft?.station) return null;
+  try {
+    const { stations } = await getBrowseAxes(lang);
+    const wanted = craft.item.en.toLowerCase();
+    return stations.find((station) => station.name.toLowerCase() === wanted)?.name ?? null;
+  } catch {
+    return null;
+  }
 }

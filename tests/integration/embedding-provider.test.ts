@@ -37,6 +37,10 @@ async function fixtureWiki(): Promise<FixtureWiki> {
     const json = (body: unknown) =>
       new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
+    // The recipe graph a run assembles asks where the titles its recipes name
+    // lead. None of these is a redirect, and none is a page fetch either: were
+    // it counted as one, a run would seem to read pages it never read.
+    if (params.get('redirects') === '1') return json({ query: {} });
     if (params.get('list') === 'allpages') {
       if (down) return new Response('Service Unavailable', { status: 503 });
       return json({ query: { allpages: pages.map((p) => ({ pageid: p.pageid, title: p.title })) } });

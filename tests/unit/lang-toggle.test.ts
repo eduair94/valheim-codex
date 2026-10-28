@@ -189,6 +189,10 @@ describe('the compact language switch', () => {
     expect(classes(en)).not.toContain('max-sm:hidden');
     // Named in its own language, so a reader who cannot read Spanish finds it.
     expect(en.attr('aria-label')).toBe('English');
+    // What shows is the language's code, in capitals, on a 44px square: a
+    // fingertip's target at any pointer, as tall as the tabs beside it.
+    expect(en.text()).toBe('en');
+    expect(classes(en)).toEqual(expect.arrayContaining(['uppercase', 'max-sm:size-11']));
   });
 
   it('offers the English reader Spanish', () => {

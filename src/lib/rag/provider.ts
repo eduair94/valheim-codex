@@ -2,7 +2,7 @@ import { createCerebras } from '@ai-sdk/cerebras';
 import { createGroq } from '@ai-sdk/groq';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createXai } from '@ai-sdk/xai';
-import type { LanguageModel } from 'ai';
+import { defaultSettingsMiddleware, wrapLanguageModel, type LanguageModel } from 'ai';
 import { isTripped } from './circuit';
 import { gemini, resolveApiKey as resolveGeminiKey } from './gemini';
 import {
@@ -13,6 +13,8 @@ import {
   GROQ_REWRITE_MODEL,
   CEREBRAS_ANSWER_MODEL,
   CEREBRAS_REWRITE_MODEL,
+  MAX_ANSWER_TOKENS,
+  MAX_REWRITE_TOKENS,
   OPENROUTER_ANSWER_MODEL,
   OPENROUTER_REWRITE_MODEL,
   REWRITE_MODEL,
@@ -23,9 +25,9 @@ import {
  *
  * Grok first, Gemini behind it. Two providers rather than one because the
  * failure this app actually hits is a rate limit, not a bug: Gemini's free tier
- * allows 20 generate_content requests a minute, and the answer path spends two
- * of them per question. A second provider turns "the app is broken for the next
- * minute" into a slower answer nobody notices.
+ * allows this project's key 20 generate_content requests a day, and the answer
+ * path spends two of them per question. A second provider turns "the app is
+ * broken until the quota resets" into a slower answer nobody notices.
  *
  * Order is preference, not fallback-only — Grok serves every request it can,
  * and Gemini exists for when it cannot. A provider with no key configured is
@@ -72,28 +74,41 @@ function cerebras(): ReturnType<typeof createCerebras> | null {
   return cachedCerebras;
 }
 
+/**
+ * A model that asks for at most `maxOutputTokens`, unless its call asks for
+ * a ceiling of its own. A call without one is priced at the model's maximum,
+ * which OpenRouter refused to reserve (see the ceilings in models.ts); set on
+ * the model, the ceiling cannot be left out by a call that forgets it.
+ */
+function capped(model: Parameters<typeof wrapLanguageModel>[0]['model'], maxOutputTokens: number): LanguageModel {
+  return wrapLanguageModel({ model, middleware: defaultSettingsMiddleware({ settings: { maxOutputTokens } }) });
+}
+
 function candidates(
   grokModel: string,
   geminiModel: string,
   groqModel: string,
   cerebrasModel: string,
   openRouterModel: string,
+  maxOutputTokens: number,
 ): Candidate[] {
   const list: Candidate[] = [];
 
   const x = xai();
-  if (x) list.push({ name: `xai/${grokModel}`, model: x(grokModel) });
+  if (x) list.push({ name: `xai/${grokModel}`, model: capped(x(grokModel), maxOutputTokens) });
 
-  if (resolveGeminiKey()) list.push({ name: `google/${geminiModel}`, model: gemini()(geminiModel) });
+  if (resolveGeminiKey()) {
+    list.push({ name: `google/${geminiModel}`, model: capped(gemini()(geminiModel), maxOutputTokens) });
+  }
 
   const g = groq();
-  if (g) list.push({ name: `groq/${groqModel}`, model: g(groqModel) });
+  if (g) list.push({ name: `groq/${groqModel}`, model: capped(g(groqModel), maxOutputTokens) });
 
   const c = cerebras();
-  if (c) list.push({ name: `cerebras/${cerebrasModel}`, model: c(cerebrasModel) });
+  if (c) list.push({ name: `cerebras/${cerebrasModel}`, model: capped(c(cerebrasModel), maxOutputTokens) });
 
   const or = openrouter();
-  if (or) list.push({ name: `openrouter/${openRouterModel}`, model: or(openRouterModel) });
+  if (or) list.push({ name: `openrouter/${openRouterModel}`, model: capped(or(openRouterModel), maxOutputTokens) });
 
   if (list.length === 0) {
     throw new Error(
@@ -135,11 +150,16 @@ export function answerCandidates(): Candidate[] {
       GROQ_ANSWER_MODEL,
       CEREBRAS_ANSWER_MODEL,
       OPENROUTER_ANSWER_MODEL,
+      MAX_ANSWER_TOKENS,
     ),
   );
 }
 
-/** Models that rewrite a question into search queries, best first. */
+/**
+ * Models that rewrite a question into search queries, best first. The
+ * translator uses them too, and sets a ceiling for each batch over the
+ * rewrite's.
+ */
 export function rewriteCandidates(): Candidate[] {
   return orderByCircuit(
     candidates(
@@ -148,6 +168,7 @@ export function rewriteCandidates(): Candidate[] {
       GROQ_REWRITE_MODEL,
       CEREBRAS_REWRITE_MODEL,
       OPENROUTER_REWRITE_MODEL,
+      MAX_REWRITE_TOKENS,
     ),
   );
 }

@@ -18,9 +18,11 @@ export type Segment = {
  * the upgrade levels of a comparison. Links rather than buttons, so a
  * comparison at level 3 can be shared, bookmarked and reopened.
  *
- * Built like the language switch in the nav, so the app has one segmented
- * control: segments sit in a track 4px inside the group's border, and their
- * 2px corners (`rounded-xs`) are the group's 6px less that padding. The 1px
+ * The app's reference switch, which new ones follow (DESIGN.md, "Segmented
+ * controls"): segments sit in a track 4px inside the group's border, and
+ * their 2px corners (`rounded-xs`) are the group's 6px less that padding, as
+ * in the level tabs and the sign-in method picker. The language switch in
+ * the nav is tighter, a 2px track with 4px corners by the same sum. The 1px
  * border is left out of the sum, which rounds the inner curve a pixel more
  * than an exact nest would. Their focus ring is drawn inside each segment
  * (`.focus-inset`), where neither the group's edge nor a neighbour can cut
@@ -76,13 +78,17 @@ export function SegmentedLinks({
 /**
  * A tint over the tapped segment until its view arrives. Always rendered and
  * only made visible, so it never moves the label.
+ *
+ * Forge/20, and no deeper: the tint is drawn over the label, and at forge/25
+ * the ash label under it fell to 4.35:1 on the bog page, under the 4.5:1
+ * every lit state keeps; at forge/20 it holds 4.83:1.
  */
 function Pending() {
   const { pending } = useLinkStatus();
   return (
     <span
       aria-hidden="true"
-      className={`pointer-events-none absolute inset-0 rounded-xs bg-forge/25 transition-opacity ${
+      className={`pointer-events-none absolute inset-0 rounded-xs bg-forge/20 transition-opacity ${
         pending ? 'opacity-100' : 'opacity-0'
       }`}
     />
