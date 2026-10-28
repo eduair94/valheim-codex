@@ -1,61 +1,53 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { SESSION_COOKIE, verifySessionToken } from '@/lib/auth/session';
-import { AUTHENTICATED_HOME, isPublicPath, PUBLIC_HOME } from '@/lib/auth/access';
+import { resolvePrincipal } from '@/lib/auth/principal';
+import { contentSecurityPolicyHeaders, decideProxy } from '@/lib/auth/proxy-policy';
 
 /**
- * Routes requests by whether they need a session: a 401 for the API, a
- * redirect for a browser, and straight through for everything public.
+ * Routes requests by who is asking: a 401 or 403 for the API, a redirect for a
+ * browser, and straight through for everything public. Also refuses
+ * cross-site writes to the API and stamps the Content-Security-Policy on
+ * every page.
  *
- * Named `proxy` because Next.js 16 renamed the convention; the behaviour is
- * unchanged. This is a convenience layer, not the security boundary — every
- * gated page and route handler verifies the session itself. The middleware
- * form of this hook has been bypassable via a forged internal header
- * (CVE-2025-29927), so treating it as the only gate would put the chat one
- * header away from anyone's bill.
+ * Named `proxy` because Next.js 16 renamed the convention. This is a
+ * convenience layer, not the security boundary — every gated page and route
+ * handler verifies the principal itself. The middleware form of this hook
+ * has been bypassable via a forged internal header (CVE-2025-29927), so
+ * treating it as the only gate would put the chat one header away from
+ * anyone's bill.
+ *
+ * The decisions live in `proxy-policy.ts`, where they are tested; this file
+ * only translates them into responses.
  */
+
+const CSP_HEADERS = contentSecurityPolicyHeaders();
+
 export async function proxy(request: NextRequest) {
-  const secret = process.env.SESSION_SECRET;
-  const token = request.cookies.get(SESSION_COOKIE)?.value;
-  const session = secret ? await verifySessionToken(token, secret) : null;
+  const { pathname, search, searchParams } = request.nextUrl;
+  const decision = await decideProxy({
+    method: request.method,
+    pathname,
+    search,
+    searchParams,
+    headers: request.headers,
+    principal: () => resolvePrincipal((name) => request.cookies.get(name)?.value),
+  });
 
-  const { pathname, search } = request.nextUrl;
-
-  // Someone already signed in has no use for the login form.
-  if (session && pathname === '/login') {
-    const url = request.nextUrl.clone();
-    url.pathname = AUTHENTICATED_HOME;
-    url.search = '';
-    return NextResponse.redirect(url);
+  switch (decision.action) {
+    case 'next': {
+      const response = NextResponse.next();
+      if (decision.page) for (const [name, value] of CSP_HEADERS) response.headers.set(name, value);
+      return response;
+    }
+    case 'redirect':
+      return NextResponse.redirect(new URL(decision.location, request.nextUrl), decision.permanent ? 308 : 307);
+    case 'json':
+      return NextResponse.json(decision.body, { status: decision.status, headers: { 'Cache-Control': 'no-store' } });
+    case 'text':
+      return new NextResponse(decision.body, {
+        status: decision.status,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
   }
-
-  if (isPublicPath(pathname)) return NextResponse.next();
-  if (session) return NextResponse.next();
-
-  /*
-   * API requests get a 401, not a redirect to an HTML page.
-   * A `fetch` that follows a redirect receives the login page with status 200,
-   * so the caller sees "success" and then fails parsing HTML as JSON. Status
-   * codes are the only signal an API client has.
-   */
-  if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
-
-  /*
-   * The bare domain is the one gated page a stranger reaches by accident
-   * rather than by choice, so it opens the public reader instead of demanding
-   * a password. Every other gated path was asked for deliberately and gets the
-   * login form, with its destination preserved.
-   */
-  const url = request.nextUrl.clone();
-  if (pathname === AUTHENTICATED_HOME) {
-    url.pathname = PUBLIC_HOME;
-    url.search = '';
-  } else {
-    url.pathname = '/login';
-    url.search = `?next=${encodeURIComponent(pathname + search)}`;
-  }
-  return NextResponse.redirect(url);
 }
 
 export const config = {

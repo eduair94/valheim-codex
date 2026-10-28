@@ -73,6 +73,14 @@ COPY --from=builder  --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder  --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder  --chown=nextjs:nodejs /app/package.json ./package.json
 
+# `next start` loads next.config.ts again when it boots; it does not run on the
+# copy the build recorded in .next. Without the file the server runs on Next's
+# defaults and says nothing: headers and redirects were compiled into the
+# build and survive, but X-Powered-By comes back, /_next/image resizes images
+# for anyone who asks, and every request body is buffered up to 10 MB instead
+# of 64 KB. Next transpiles it with its own SWC binary; no TypeScript needed.
+COPY --from=builder  --chown=nextjs:nodejs /app/next.config.ts ./next.config.ts
+
 # Migrations travel with the image so a deploy can apply them if needed.
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
@@ -81,6 +89,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 # this path is a plain directory rather than one buried under the package
 # manager's store with the dependency version in it.
 COPY --from=builder --chown=nextjs:nodejs /app/.model-cache ./.model-cache
+
+# Proves `next start` will run with the configuration the build used, loaded
+# exactly as the container will load it. Nothing else notices when the copy
+# above goes missing: the server starts, answers and passes its health check.
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/verify-next-config.mjs ./verify-next-config.mjs
+RUN node verify-next-config.mjs && rm verify-next-config.mjs
 
 # Proves the model loads from this exact file set, on this exact platform,
 # before the image is considered good. A build failure here is far cheaper than

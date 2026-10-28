@@ -35,6 +35,50 @@ describe('extractInfobox', () => {
   });
 });
 
+describe('extractInfobox — values keep their entries', () => {
+  const valueOf = (html: string, label: string): string | undefined => {
+    const box = extractInfobox(html);
+    const walk = (nodes: NonNullable<typeof box>['nodes']): string | undefined => {
+      for (const node of nodes) {
+        if (node.kind === 'data' && node.label === label) return node.value;
+        const inner =
+          node.kind === 'group' ? walk(node.children) : node.kind === 'tabs' ? walk(node.tabs.flatMap((t) => t.children)) : undefined;
+        if (inner) return inner;
+      }
+      return undefined;
+    };
+    return box ? walk(box.nodes) : undefined;
+  };
+
+  it('reads a nested list once, one line per entry', async () => {
+    // Was "Unarmed:Punch (4s)Ground slam (20s)Throw (10s); Punch (4s); …":
+    // every parent item's text glued together, then each child again.
+    const abilities = valueOf(await fixtureHtml('Troll'), 'Abilities');
+    expect(abilities).toBe(
+      'Unarmed:\nPunch (4s)\nGround slam (20s)\nThrow (10s)\nLog-wielding:\nLog swing V (6s)\nLog swing H (6s)',
+    );
+  });
+
+  it('splits a value at paragraphs and line breaks', () => {
+    const html = `<aside class="portable-infobox"><h2 class="pi-title">Hugin</h2>
+      <div class="pi-item pi-data"><h3 class="pi-data-label">Affiliation</h3>
+        <div class="pi-data-value"><a href="/wiki/Oden">Oden</a><p><a href="/wiki/Munin">Munin</a></p></div></div>
+      <div class="pi-item pi-data"><h3 class="pi-data-label">Damaged by<br>Rain?</h3>
+        <div class="pi-data-value">Yes<br>slowly</div></div>
+    </aside>`;
+    expect(valueOf(html, 'Affiliation')).toBe('Oden\nMunin');
+    expect(valueOf(html, 'Damaged by Rain?')).toBe('Yes\nslowly');
+  });
+
+  it('keeps crafting materials as one entry per line', async () => {
+    const box = extractInfobox(await fixtureHtml('Iron_Sword'));
+    const tabs = box!.nodes.find((n) => n.kind === 'tabs');
+    if (tabs?.kind !== 'tabs') throw new Error('unreachable');
+    const level1 = JSON.stringify(tabs.tabs[0]);
+    expect(level1).toContain('"value":"Wood x2\\nIron x20\\nLeather scraps x3"');
+  });
+});
+
 describe('renderInfobox', () => {
   it('pairs horizontal-group labels with their values instead of running them together', async () => {
     const box = extractInfobox(await fixtureHtml('Iron_Sword'));
@@ -62,6 +106,13 @@ describe('renderInfobox', () => {
     expect(rendered).toMatch(/Iron x20/);
     expect(rendered).toMatch(/Wood x2/);
     expect(rendered).toMatch(/Leather scraps x3/);
+  });
+
+  it('keeps a multi-line value on its own line of the rendering', async () => {
+    // The chunker reads one line per breadcrumb; a value's own breaks join with "; ".
+    const rendered = renderInfobox(extractInfobox(await fixtureHtml('Troll'))!);
+    expect(rendered).toMatch(/Abilities: Unarmed:; Punch \(4s\); Ground slam \(20s\); Throw \(10s\); Log-wielding:/);
+    for (const line of rendered.split('\n').slice(1)) expect(line).toMatch(/: /);
   });
 
   it('works on a creature infobox', async () => {

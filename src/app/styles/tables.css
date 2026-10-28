@@ -1,0 +1,576 @@
+/*
+  Tables and stat lists: the chat's answer tables, the article's tables, the
+  phone cards the chat's, the article's and the guide's tables turn into, and
+  the infobox's rows. Imported by those three routes' pages, not globally.
+
+  Layers. What lives in `@layer components` loses to any utility on the same
+  element, which is what a component class should do. Two blocks stay
+  unlayered on purpose and say so where they start: the answer table, which
+  the phone cards must still beat on equal terms, and the phone cards
+  themselves, which exist to override the desktop styling — utilities
+  included — of every table that uses them (the guide styles its desktop
+  tables with its own classes). The cards beat the answer table by coming
+  after it, which holds only while both are in this one file: split across
+  two, their order would be whichever route a reader happened to open first.
+
+  The `@reference` emits nothing: it gives each color-mix() below a fallback
+  in plain colour, for browsers without color-mix() (globals.css says more).
+*/
+@reference '../globals.css';
+
+/*
+  Answer tables: a stat block, carved rather than boxed.
+
+  No outer frame and no zebra striping — both are table defaults that would
+  import a spreadsheet into a firelit camp. What the reader is actually doing
+  is comparing a quantity across rows ("how much iron at level 3"), so the
+  work is done by tabular monospaced numerals, which put every digit in the
+  same column, and by hairlines thin enough to guide the eye without drawing
+  it. The header borrows the `.label` treatment already used for section
+  labels, so a table reads as part of the same system.
+
+  Unlayered: the phone cards below override some of these by specificity and
+  order (the cell face, the padding), and that only holds while both sit
+  outside the layers.
+*/
+.answer-table {
+  /*
+    The table scrolls, never the page. A crafting table with five columns is
+    wider than a phone, and a body that scrolls sideways is the single most
+    common way a mobile layout breaks.
+  */
+  overflow-x: auto;
+  margin: 0.9rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-forge) 40%, transparent);
+  border-bottom: 1px solid var(--color-lichen);
+}
+.answer-table table {
+  width: 100%;
+  /* Cells keep their content rather than wrapping into unreadable columns. */
+  min-width: max-content;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.answer-table th,
+.answer-table td {
+  padding: 0.5rem 0.9rem;
+  text-align: left;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.answer-table thead th {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--color-ash);
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+/*
+  What only a table has, while it is one. Below 640px it is a stack of cards
+  (`.stack-table`, under exactly the complement of this query), each with its
+  own padding and hairlines, and these selectors are more specific than the
+  cards': flush left, every card's title sat against its border, and the row
+  rules doubled the lines of every card after the first, along its top and
+  under its title.
+*/
+@media (width > 639px) {
+  .answer-table th:first-child,
+  .answer-table td:first-child {
+    padding-left: 0;
+  }
+  .answer-table tbody tr + tr th,
+  .answer-table tbody tr + tr td {
+    border-top: 1px solid color-mix(in srgb, var(--color-lichen) 60%, transparent);
+  }
+}
+/* The row's own label: the level, the item, whatever the row is about. */
+.answer-table tbody th {
+  font-weight: 600;
+  color: var(--color-birch);
+}
+/*
+  Quantities align only if the digits are the same width. This is the whole
+  reason the table beats a list for upgrade costs.
+*/
+.answer-table tbody td {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-birch) 88%, transparent);
+}
+
+/*
+  Article tables, from 640px (below that they are cards).
+
+  Each column behaves like its content, decided per column when the page is
+  rendered (`table-model.ts`): quantities in tabular figures on one line,
+  names on one line, phrases at their natural width, and sentences wrapped
+  between a floor and a ceiling — a column forced onto one line was a strip
+  thousands of pixels long that hid the rest of the table (LD-06, DET-02).
+  The row heading is pinned while it is short, with an opaque background
+  that matches its row, so the cells scrolling under it never show through.
+*/
+@layer components {
+  @media (width >= 40rem) {
+    .data-scroller {
+      overflow-x: auto;
+      border: 1px solid var(--color-moss);
+      border-radius: 0.375rem;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.875rem;
+      line-height: 1.45;
+    }
+    .data-table thead th {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--color-moss);
+      background: var(--color-peat);
+      color: var(--color-ash);
+      font-weight: 500;
+      vertical-align: bottom;
+    }
+    /* A short heading in the label style; a long one in sentence case (DET-07). */
+    .data-table .head-label {
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .data-table .head-text {
+      min-width: 8rem;
+      font-size: 0.8125rem;
+    }
+    .data-table tbody :is(th, td) {
+      padding: 0.5rem 0.75rem;
+      vertical-align: baseline;
+      background: var(--color-bog);
+    }
+    .data-table tbody tr + tr > * {
+      border-top: 1px solid color-mix(in srgb, var(--color-moss) 50%, transparent);
+    }
+    /* Opaque, so a pinned cell hides what scrolls beneath it. */
+    .data-table tbody tr:nth-child(even) > * {
+      background: color-mix(in srgb, var(--color-peat) 35%, var(--color-bog));
+    }
+    .data-table tbody th {
+      font-weight: 500;
+      color: var(--color-birch);
+    }
+    .data-table tbody td {
+      color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+    }
+    /*
+      The cells' face only. A number column's heading is set like its
+      neighbours (`.head-label`, which already keeps it on one line); given
+      this class too, it came out in 13px figures beside 11px labels.
+    */
+    .data-table tbody .col-num {
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .data-table .col-short {
+      white-space: nowrap;
+    }
+    .data-table .col-text {
+      min-width: 7rem;
+    }
+    /*
+      A sentence wraps, but never into a sliver: 10rem at the least, and
+      otherwise as wide as the table makes its column. A ceiling on the text
+      did not narrow the column, which the table still widened to fill its
+      box: it left half of every cell empty beside the text, and a table of
+      runestone inscriptions twice as tall as it needed to be.
+    */
+    .data-table .col-long > .cell {
+      display: block;
+      min-width: 10rem;
+    }
+    .data-table .col-sticky {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      box-shadow: inset -1px 0 0 var(--color-moss);
+    }
+    .data-table thead .col-sticky {
+      z-index: 2;
+    }
+
+    /* A full-width sub-heading ("10 of the following:"), kept in view while the row scrolls. */
+    .data-table tbody tr[data-group] > th {
+      padding-top: 0.75rem;
+      background: color-mix(in srgb, var(--color-peat) 60%, var(--color-bog));
+      color: var(--color-ash);
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+    .data-table tbody tr[data-group] > th > * {
+      position: sticky;
+      left: 0.75rem;
+    }
+  }
+}
+
+/*
+  Wide tables become cards on a phone.
+
+  A comparison of ten biomes across five columns cannot be made to fit 390px,
+  and the usual answer — let it scroll sideways — asks the reader to hold the
+  first column in their head while dragging the rest into view. Below `sm` each
+  row becomes a card and each cell becomes a labelled line, which is the same
+  label-left / value-right shape the article infobox already uses, so the whole
+  app has one way of presenting a named value.
+
+  One semantic table in the markup, restyled. Duplicating it as separate mobile
+  and desktop trees would mean two things to keep in step and two things for a
+  screen reader to walk.
+
+  Cells carry `data-label` with their column's heading; that attribute is what
+  makes the label appear once the header row is gone.
+
+  Unlayered on purpose: these rules override the desktop styling of every
+  table that uses them, utilities included, and a layered rule would lose to
+  those.
+*/
+@media (max-width: 639px) {
+  .stack-table thead {
+    /* `display: none` would drop it from the accessibility tree along with the
+       layout; the labels are recreated from `data-label` instead. */
+    display: none;
+  }
+
+  .stack-table,
+  .stack-table tbody,
+  .stack-table tr,
+  .stack-table th,
+  .stack-table td {
+    display: block;
+    width: auto;
+  }
+
+  /*
+    Not clipped to round its corners, so nothing in a card can ever be cut
+    off: the cells at either end are rounded instead, as the stat list's rows
+    are (LM-01). The title is the cell with a fill of its own, against the
+    top edge, and against the bottom one too when it is the card's only cell.
+  */
+  .stack-table tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--color-peat) 70%, transparent);
+  }
+  .stack-table tr:last-child {
+    margin-bottom: 0;
+  }
+  .stack-table tr > :first-child {
+    border-top-left-radius: calc(6px - 1px);
+    border-top-right-radius: calc(6px - 1px);
+  }
+  .stack-table tr > :last-child {
+    border-bottom-left-radius: calc(6px - 1px);
+    border-bottom-right-radius: calc(6px - 1px);
+  }
+
+  /* The row's own heading is the card's title. */
+  .stack-table tbody th {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-moss);
+    background: color-mix(in srgb, var(--color-moss) 45%, transparent);
+    font-weight: 600;
+    color: var(--color-birch);
+    white-space: normal;
+    text-align: left;
+  }
+  /* A row with no heading has no title bar, rather than an empty one. */
+  .stack-table tbody th:empty {
+    display: none;
+  }
+
+  /*
+    Each cell is a two-column line: its label, then its value.
+
+    A table box rather than a grid. A grid makes every child of the cell an
+    item of its own, so a value made of several pieces — text and links,
+    "10 Wood 15 Flint" — was dealt out across the label and value columns,
+    each quantity beside the wrong material (BWR-01). A table wraps everything
+    after the label, whatever it is made of, in one anonymous cell.
+  */
+  .stack-table tbody td {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    padding: 0.5rem 0.75rem;
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+    /*
+     * Body face, not the monospace the desktop table uses. Monospace is there
+     * to align digits down a column; stacked into cards there is no column to
+     * align, so all it buys is a list of twelve creature names set in twelve
+     * lines of typewriter. Tabular figures stay, so a card of numbers still
+     * looks deliberate.
+     */
+    font-family: var(--font-body);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
+  }
+  .stack-table tbody td + td {
+    border-top: 1px solid color-mix(in srgb, var(--color-moss) 70%, transparent);
+  }
+  .stack-table tbody td::before {
+    content: attr(data-label);
+    display: table-cell;
+    /* Room for a Spanish heading ("Puñalada por la espalda") on two lines at most. */
+    width: 40%;
+    padding-right: 0.75rem;
+    vertical-align: baseline;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ash);
+  }
+  /* Labels that are a word or a number ("1", "Total") need a quarter, not two fifths. */
+  .stack-table[data-labels='short'] tbody td::before {
+    width: 25%;
+  }
+  /* A cell with no column heading has nothing to label; keep the value only. */
+  .stack-table tbody td:not([data-label])::before,
+  .stack-table tbody td[data-label='']::before {
+    content: none;
+  }
+  .stack-table tbody td:not([data-label]),
+  .stack-table tbody td[data-label=''] {
+    display: block;
+  }
+  /* A heading too long for the label column takes a line of its own (LM-20). */
+  .stack-table tbody td[data-wide] {
+    display: block;
+  }
+  .stack-table tbody td[data-wide]::before {
+    display: block;
+    width: auto;
+    padding-right: 0;
+    margin-bottom: 0.25rem;
+  }
+  /* An empty value is not worth a labelled line. */
+  .stack-table tbody td:empty {
+    display: none;
+  }
+
+  /*
+    A full-width sub-heading row: a heading between cards, not a card. Each
+    one starts a row group (`tbody`) of its own, and the groups are spaced
+    apart like the sections they are.
+  */
+  .stack-table tbody + tbody {
+    margin-top: 1.25rem;
+  }
+  .stack-table tbody tr[data-group] {
+    margin: 0 0 0.5rem;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  .stack-table tbody tr[data-group] th {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-ash);
+    font-size: 0.875rem;
+  }
+
+  /* The wrapper no longer has anything to scroll. */
+  .stack-scroller {
+    overflow-x: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /*
+   * `.answer-table table` sets `min-width: max-content` so cells keep their
+   * content on a desktop. Written as `table.stack-table` to match that
+   * selector's specificity — a bare `.stack-table` would lose and every card
+   * would still be as wide as its longest row.
+   */
+  table.stack-table {
+    min-width: 0;
+    font-size: 0.875rem;
+  }
+}
+
+/*
+  The infobox's stat rows (`StatGroup`): one bordered list, hairlines between
+  rows and a faint stripe on every other one, so a label finds its value
+  across the row. Not clipped to round its corners — the rows at either end
+  are rounded instead — so nothing in a row can ever be cut off (LM-01).
+
+  On a tablet the rows pair up in two columns; striping by row number would
+  then stripe one column, so the pairs keep only their hairlines.
+*/
+@layer components {
+  .stat-list {
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+  }
+  .stat-list > .stat-row {
+    padding: 0.5rem 0.75rem;
+  }
+  .stat-list > .stat-row-recipe {
+    padding-block: 0.75rem;
+  }
+  .stat-list > .stat-row + .stat-row {
+    border-top: 1px solid color-mix(in srgb, var(--color-moss) 60%, transparent);
+  }
+  .stat-list > .stat-row:nth-child(odd) {
+    background: color-mix(in srgb, var(--color-peat) 40%, transparent);
+  }
+  .stat-list > .stat-row:first-child {
+    border-top-left-radius: calc(0.375rem - 1px);
+    border-top-right-radius: calc(0.375rem - 1px);
+  }
+  .stat-list > .stat-row:last-child {
+    border-bottom-left-radius: calc(0.375rem - 1px);
+    border-bottom-right-radius: calc(0.375rem - 1px);
+  }
+
+  /*
+    A group of rows is a size container: its recipe picks its columns from
+    the space the group is given (two in a phone's column or the desktop
+    infobox, three or four across a tablet), not from the screen. Never split
+    across the columns of a spread infobox.
+  */
+  .stat-group {
+    container-type: inline-size;
+    break-inside: avoid;
+  }
+
+  /* Label left, value right; the label wraps, the value keeps its room. */
+  .stat-inline {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+  }
+  .stat-inline > dt {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.875rem;
+    color: var(--color-ash);
+  }
+  .stat-inline > dd {
+    max-width: 60%;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-birch);
+  }
+  /* A phrase or a list: the value under its label, read as text. */
+  .stat-stacked > dt {
+    font-size: 0.875rem;
+    color: var(--color-ash);
+  }
+  .stat-stacked > dd {
+    margin-top: 0.25rem;
+    max-width: 65ch;
+    font-size: 0.875rem;
+    line-height: 1.375;
+    color: var(--color-birch);
+  }
+
+  /*
+    Recipe tiles (`Recipe`): the material's icon, its name and the count. The
+    tiles of a row share its height, so a name that wraps to two lines does
+    not leave its neighbour short (LM-18).
+  */
+  .recipe-tile {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid color-mix(in srgb, var(--color-moss) 60%, transparent);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--color-peat) 20%, transparent);
+  }
+  .recipe-tile-link {
+    border-color: var(--color-moss);
+    background: color-mix(in srgb, var(--color-peat) 40%, transparent);
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .recipe-tile-link:hover {
+    border-color: color-mix(in srgb, var(--color-forge) 60%, transparent);
+    background: var(--color-peat);
+  }
+  .recipe-icon {
+    display: flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.125rem;
+    background: color-mix(in srgb, var(--color-bog) 60%, transparent);
+    font-size: 0.875rem;
+  }
+  .recipe-name,
+  .recipe-qty {
+    display: block;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+  }
+  .recipe-name {
+    color: var(--color-birch);
+    text-wrap: balance;
+  }
+  /* The count is what gets compared against the chest: monospaced, amber. */
+  .recipe-qty {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-forge);
+  }
+
+  @media (width >= 48rem) and (width < 64rem) {
+    .stat-list-pairs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 1.5rem;
+      padding-inline: 0.75rem;
+    }
+    /* Same weight as the stripe rule above, and later, so the pairs drop it. */
+    .stat-list-pairs > .stat-row,
+    .stat-list-pairs > .stat-row:nth-child(odd) {
+      padding-inline: 0;
+      background: none;
+    }
+    /*
+      Every row draws its hairline above itself as a shadow; along the first
+      line of pairs it falls on the list's own border. Counting children to
+      skip the first line breaks as soon as a row spans both columns.
+    */
+    .stat-list-pairs > .stat-row + .stat-row {
+      border-top: 0;
+    }
+    .stat-list-pairs > .stat-row {
+      box-shadow: 0 -1px 0 color-mix(in srgb, var(--color-moss) 60%, transparent);
+    }
+    /* A recipe, or a value that is a sentence, takes the whole width. */
+    .stat-list-pairs > .stat-row-span {
+      grid-column: 1 / -1;
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { isTripped, recordFailure, recordSuccess, resetCircuits } from '@/lib/rag/circuit';
+import { isTripped, recordFailure, recordSuccess, recordTimeout, resetCircuits } from '@/lib/rag/circuit';
 
 /**
  * The point of the breaker is that an unfunded key is not a transient fault.
@@ -61,5 +61,41 @@ describe('recovery', () => {
   it('keeps providers independent', () => {
     recordFailure('xai/grok', { statusCode: 403 });
     expect(isTripped('groq/gpt-oss')).toBe(false);
+  });
+});
+
+describe('timeouts', () => {
+  /*
+   * A provider that hung once is probably hanging for everyone at that
+   * moment; without a memory every question would wait out the whole
+   * first-token deadline on it before reaching one that answers.
+   */
+  it('demotes a provider that missed the answer’s deadline, but only for about a minute', () => {
+    const now = 1_000_000;
+    recordTimeout(NAME, now);
+
+    expect(isTripped(NAME, now + 30_000)).toBe(true);
+    expect(isTripped(NAME, now + 61_000)).toBe(false);
+  });
+
+  /*
+   * Rewrite, answer and translation share candidate names. A translation
+   * batch outliving its own 60-second timer, or a rewrite missing its
+   * 6-second deadline, used to demote the operator's first provider for chat
+   * answers as well.
+   */
+  it.each([
+    ['the TimeoutError a caller’s own AbortSignal.timeout throws', new DOMException('The operation timed out.', 'TimeoutError')],
+    ['a ResponseTimeoutError reported as an ordinary failure', Object.assign(new Error('late'), { name: 'ResponseTimeoutError' })],
+  ])('does not demote on %s', (_label, error) => {
+    recordFailure(NAME, error, 2_000_000);
+    expect(isTripped(NAME, 2_000_000 + 1_000)).toBe(false);
+  });
+
+  it('never shortens a permanent cooldown already in force', () => {
+    const now = 3_000_000;
+    recordFailure(NAME, { statusCode: 403 }, now);
+    recordTimeout(NAME, now + 1_000);
+    expect(isTripped(NAME, now + 5 * 60_000)).toBe(true);
   });
 });

@@ -20,6 +20,14 @@ const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
 
 /**
+ * Shortest password the setup scripts accept. It is the one credential
+ * between the internet and the operator's model budget, shared among friends
+ * and guessed against from anywhere. `scripts/set-password.mjs` keeps its own
+ * copy of this number because it runs with no dependencies.
+ */
+export const MIN_PASSWORD_LENGTH = 12;
+
+/**
  * Field separator.
  *
  * A dot, not the conventional `$`. The hash is carried in `APP_PASSWORD_HASH`,
@@ -100,5 +108,82 @@ export async function verifyPassword(password: string, stored: string): Promise<
     return timingSafeEqual(actual, parsed.digest);
   } catch {
     return false;
+  }
+}
+
+/**
+ * How many verifications run at once in this process, and how many may wait.
+ *
+ * Each one holds a libuv thread and 64 MB for about 150 ms, and Node has four
+ * such threads, shared with file reads and DNS lookups. A burst of guesses
+ * from many addresses — each still under its own rate limit — queued there
+ * without bound and stalled everything else: with sixteen in flight, a file
+ * read went from 2 ms to 676 ms, public wiki included. Two at a time leaves
+ * the other threads free; past a short queue the request is turned away as
+ * busy rather than left waiting.
+ *
+ * A full queue turns everyone away, so the queue is shared out: one network
+ * may hold two places at most, and browsers that have signed in before
+ * (`login-device.ts`) have places of their own and are served first. A flood
+ * from one network cannot fill the queue, and a flood from many — which the
+ * limiter's shared failure budget stops soon after — cannot keep a returning
+ * reader out while it lasts.
+ */
+const MAX_CONCURRENT_VERIFICATIONS = 2;
+const MAX_WAITING_VERIFICATIONS = 8;
+const MAX_WAITING_KNOWN = 4;
+const MAX_IN_FLIGHT_PER_NETWORK = 2;
+
+let running = 0;
+const waiting: (() => void)[] = [];
+const waitingKnown: (() => void)[] = [];
+const inFlight = new Map<string, number>();
+
+export type ThrottleOptions = {
+  /** The caller's network (`networkOf`), so that one network cannot fill the queue. */
+  network?: string;
+  /** A browser that has signed in before: its own places, served first, no network share. */
+  known?: boolean;
+};
+
+function track(network: string | undefined, delta: number): void {
+  if (network === undefined) return;
+  const value = (inFlight.get(network) ?? 0) + delta;
+  if (value > 0) inFlight.set(network, value);
+  else inFlight.delete(network);
+}
+
+/**
+ * {@link verifyPassword} behind the per-process queue above.
+ *
+ * Resolves to null, without verifying anything, when there is no place for
+ * the request: its network already holds its share, or its line is full.
+ */
+export async function verifyPasswordThrottled(
+  password: string,
+  stored: string,
+  options: ThrottleOptions = {},
+): Promise<boolean | null> {
+  const known = options.known === true;
+  const network = known ? undefined : options.network;
+  if (network !== undefined && (inFlight.get(network) ?? 0) >= MAX_IN_FLIGHT_PER_NETWORK) return null;
+
+  if (running >= MAX_CONCURRENT_VERIFICATIONS) {
+    const line = known ? waitingKnown : waiting;
+    if (line.length >= (known ? MAX_WAITING_KNOWN : MAX_WAITING_VERIFICATIONS)) return null;
+    track(network, 1);
+    // Woken by a finishing verification, which hands its slot over.
+    await new Promise<void>((resolve) => line.push(resolve));
+  } else {
+    running++;
+    track(network, 1);
+  }
+  try {
+    return await verifyPassword(password, stored);
+  } finally {
+    track(network, -1);
+    const next = waitingKnown.shift() ?? waiting.shift();
+    if (next) next();
+    else running--;
   }
 }

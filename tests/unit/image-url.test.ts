@@ -52,9 +52,26 @@ describe('thumbnailImageUrl', () => {
     );
   });
 
-  it('leaves a URL that is already sized alone', () => {
+  it('shrinks a stored grid size to the drawn size', () => {
+    // A 268px biome screenshot drawn in a 60px tile.
+    expect(
+      thumbnailImageUrl(
+        'https://static.wikia.nocookie.net/valheim/images/c/c7/Iron.png/revision/latest/scale-to-width-down/268?cb=2',
+        60,
+      ),
+    ).toBe(
+      'https://static.wikia.nocookie.net/valheim/images/c/c7/Iron.png/revision/latest/scale-to-width-down/120?cb=2',
+    );
+  });
+
+  it('never asks for more pixels than the stored URL did', () => {
     const url =
-      'https://static.wikia.nocookie.net/valheim/images/c/c7/Iron.png/revision/latest/scale-to-width-down/268?cb=2';
+      'https://static.wikia.nocookie.net/valheim/images/c/c7/Iron.png/revision/latest/scale-to-width-down/50?cb=2';
+    expect(thumbnailImageUrl(url, 72)).toBe(url);
+  });
+
+  it('leaves other resizing modes alone', () => {
+    const url = 'https://static.wikia.nocookie.net/valheim/images/a/ab/X.png/revision/latest/thumbnail/width/200';
     expect(thumbnailImageUrl(url, 32)).toBe(url);
   });
 

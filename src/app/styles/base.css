@@ -1,0 +1,319 @@
+/*
+  Base layer: document defaults, the shell's layout contract, the type roles,
+  focus, selection, scrollbars and the app's only ambient motion.
+
+  Tailwind declares `@layer theme, base, components, utilities`, and the order
+  of those layers, not selector specificity, decides which rule wins. Document
+  defaults live in `base` and component classes in `components`, so a utility
+  written on an element always gets the last word: `label text-forge` is forge.
+  The few rules left unlayered below are unlayered on purpose and say why.
+*/
+
+/* ------------------------------------------------------------------ layout */
+
+/*
+  The shell's layout contract. Anything pinned to a viewport edge, and
+  anything that scrolls to an anchor, reads these rather than a measured
+  pixel value:
+
+  --nav-h      What covers the top of the viewport. From 640px up that is the
+               sticky nav, plus the status bar an installed app draws over the
+               page. Below 640px it is only that status bar, and `env()` is 0
+               in a browser tab, so there it is 0px. Sticky elements use
+               `top: var(--nav-h)`. It already includes
+               `env(safe-area-inset-top)` at every width: never add the inset
+               to it again, or an installed iPhone counts the status bar twice.
+  --tabbar-h   The bottom tab bar on phones, home-indicator inset included;
+               0px from 640px up. Anything fixed above it uses
+               `bottom: calc(var(--tabbar-h) + <gap>)`.
+  --gutter     The side padding of `.shell-container`, for anything that
+               bleeds to the container's edge: `-mx-(--gutter) px-(--gutter)`.
+  --sticky-h   Optional, 0px unless a page sets it: the height of a page's own
+               sticky bar under the nav (the search field), so anchors and
+               focus clear that too. Set it from the page's CSS, for example
+               `html:has(#wiki-search) { --sticky-h: 4.25rem }`.
+*/
+@layer base {
+  :root {
+    color-scheme: dark;
+    --gutter: 1rem;
+    --nav-h: env(safe-area-inset-top, 0px);
+    --tabbar-h: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  @media (width >= 40rem) {
+    :root {
+      --gutter: 1.5rem;
+      --nav-h: calc(3rem + env(safe-area-inset-top, 0px));
+      --tabbar-h: 0px;
+    }
+  }
+
+  /* A finger needs a taller bar than a cursor does: 44px targets with room around them. */
+  @media (width >= 40rem) and (pointer: coarse) {
+    :root {
+      --nav-h: calc(3.5rem + env(safe-area-inset-top, 0px));
+    }
+  }
+
+  @media (width >= 64rem) {
+    :root {
+      --gutter: 2rem;
+    }
+  }
+
+  /*
+    Keyboard focus and in-page anchors stop short of the bars instead of
+    landing underneath them (WCAG 2.4.11). The extra rem keeps a target off
+    the bar's edge.
+  */
+  html {
+    scroll-padding-top: calc(var(--nav-h) + var(--sticky-h, 0px) + 1rem);
+    scroll-padding-bottom: calc(var(--tabbar-h) + 1rem);
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-bog);
+    color: var(--color-birch);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    /*
+     * The browser's default tap flash is a light-mode grey rectangle; on this
+     * palette it reads as a glitch rather than a state change. Every
+     * interactive element has its own hover and active state instead.
+     */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+    Tailwind's preflight gives buttons the arrow cursor, so a sortable table
+    header looked inert beside the links in the same toolbar.
+  */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: var(--color-forge-dim);
+    color: var(--color-birch);
+  }
+
+  /* Thin, warm scrollbars so panels do not gain a cold grey edge. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-lichen) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-lichen);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /*
+    The container the nav and the wiki's <main> share, so their edges line up
+    at every width: the same box as `mx-auto w-full max-w-6xl px-4 sm:px-6
+    lg:px-8`. Pages set their own measure inside it (prose 65–72ch, the search
+    hero `max-w-2xl`; grids take the full width). In landscape on a notched
+    phone the padding never drops inside the notch.
+  */
+  .shell-container {
+    width: 100%;
+    max-width: 72rem;
+    margin-inline: auto;
+    padding-left: max(var(--gutter), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
+  }
+
+  /*
+    "Skip to content": the first stop for a keyboard, so the nav is one Tab
+    away rather than in the way. Parked above the viewport rather than hidden,
+    so it stays in the tab order and the accessibility tree, and slides into
+    the corner when focused. Forge-filled, so its ring is birch. A flex box so
+    that its line stays in the middle when a touch screen makes it taller.
+  */
+  .skip-link {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    background: var(--color-forge);
+    color: var(--color-bog);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    text-decoration: none;
+    --focus-ring: var(--color-birch);
+    transform: translateY(calc(-100% - 1rem - env(safe-area-inset-top, 0px)));
+  }
+  .skip-link:focus {
+    transform: none;
+  }
+  /* Shown to a keyboard, but on a touch screen a finger may be what taps it: 44px there. */
+  @media (pointer: coarse) {
+    .skip-link {
+      min-height: 2.75rem;
+    }
+  }
+}
+
+/* -------------------------------------------------------------------- type */
+
+/*
+  Type roles. Three faces, each with one job; sizes come from Tailwind's
+  scale, and steps between roles stay obvious.
+
+  - Display (.display): Cinzel 600, carved capitals. The app name, page and
+    section titles. A page title is `text-2xl` on phones and `sm:text-3xl`
+    above; a section title `text-lg`. Never running text: capitals tire the
+    eye after a line.
+  - Body: Spectral 400, 16px on 1.65, set on <body>. Prose holds a 65–72ch
+    measure. Secondary UI text steps down to `text-sm` (14px).
+  - Label (.label): JetBrains Mono at 11px, tracked capitals, ash. Section
+    labels and column headings only. The one role allowed under 12px, because
+    a short tracked uppercase word stays legible where a sentence would not.
+  - Meta and data: JetBrains Mono at `text-xs` (12px) for counts, dates and
+    stat values, with tabular figures wherever digits must line up.
+
+  The floor: no functional text under 12px, and nothing longer than a few
+  words set in tracked capitals.
+*/
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-ash);
+  }
+}
+
+/* ------------------------------------------------------------------- focus */
+
+/*
+  Visible focus everywhere; the amber is the only ring in the system, and it
+  follows each control's own radius.
+
+  Unlayered on purpose. A few inputs still carry `focus:outline-none` and rely
+  on this rule beating it; inside a layer that utility would win and leave
+  them with no ring at all. So a `focus-visible:outline-*` utility cannot
+  adjust it either. Use the two hooks instead:
+
+  - `.focus-inset` draws the ring inside the control, for segmented and
+    clipped controls where a parent's edge or a neighbouring segment would cut
+    an outside ring off.
+  - `--focus-ring` recolours it. On a forge-filled control the amber ring
+    disappears into the fill, and a bog one — drawn inset, along the
+    control's edge — into the dark track or page right beside it: focusing
+    the selected segment of a switch then showed almost no change. Such a
+    control sets `[--focus-ring:var(--color-birch)]`, which stands out from
+    both. An outside ring sits on the dark page and needs nothing.
+*/
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring, var(--color-forge));
+  outline-offset: 2px;
+}
+
+.focus-inset:focus-visible {
+  outline-offset: -2px;
+}
+
+/*
+  The skip link's target takes focus so the next Tab starts inside it. It is
+  not a control, and a ring around the whole page would only look like one.
+*/
+#main:focus-visible {
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ motion */
+
+/*
+  Ember: the one ambient motion in the app.
+  It marks the seconds between sending a question and the first token, where
+  there is otherwise nothing to look at. Firelight is the subject's own
+  material, so the wait reads as part of the world rather than as a spinner.
+*/
+@keyframes ember {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.1);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer components {
+  .ember {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--color-forge);
+    animation: ember 1.4s ease-in-out infinite;
+  }
+  .ember:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+  .ember:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+
+  .rise {
+    animation: rise 260ms ease-out both;
+  }
+}
+
+/*
+  Unlayered, and `!important`, so it outranks every ordinary animation and
+  transition declaration, layered or not.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

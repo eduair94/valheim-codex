@@ -1,7 +1,27 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { strings, type Lang } from '@/lib/i18n/strings';
+import { useStrings } from '@/components/shell/lang-context';
+import { MAX_QUESTION_CHARS } from '@/lib/chat/conversation-url';
+import type { Lang } from '@/lib/i18n/strings';
+
+/** The field's id: the chat's "skip to the question" link points here. */
+export const COMPOSER_ID = 'composer';
+
+/**
+ * Puts focus in the question field, where it goes after a control that took
+ * it away with itself (see `byKeyboard` in `@/lib/chat/focus`). The field
+ * never scrolls into view for it: it is always on screen, below the thread.
+ */
+export function focusComposer(): void {
+  document.getElementById(COMPOSER_ID)?.focus({ preventScroll: true });
+}
+
+/** From this many characters on, the count shows, so the limit never arrives unannounced. */
+const COUNT_FROM = Math.floor(MAX_QUESTION_CHARS * 0.9);
+
+/** Tallest the field grows before it scrolls, in px. */
+const MAX_FIELD_HEIGHT = 190;
 
 /**
  * The question field.
@@ -9,24 +29,28 @@ import { strings, type Lang } from '@/lib/i18n/strings';
  * Enter sends and Shift+Enter breaks the line, which is what anyone arriving
  * from a chat app expects. The field grows with its content up to a ceiling so
  * a long question stays visible without the answer scrolling out of view.
+ *
+ * It sits in the same column as the thread (`max-w-3xl` with the same side
+ * padding), so its edges line up with the answers above it, and the field and
+ * its button are the same 44px tall: a box around the field used to make it
+ * taller than the button, with the placeholder sitting above the button's
+ * label.
  */
 export function Composer({
   lang,
-  disabled,
   busy,
   initialValue = '',
   onSend,
   onStop,
 }: {
   lang: Lang;
-  disabled: boolean;
   busy: boolean;
   /** Prefill, used when arriving from an article via "Ask about this". */
   initialValue?: string;
   onSend: (text: string) => void;
   onStop: () => void;
 }) {
-  const t = strings(lang);
+  const t = useStrings(lang);
   const [value, setValue] = useState(initialValue);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -34,7 +58,9 @@ export function Composer({
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 190)}px`;
+    // scrollHeight leaves out the border, which the field's own box includes.
+    const borders = el.offsetHeight - el.clientHeight;
+    el.style.height = `${Math.min(el.scrollHeight + borders, MAX_FIELD_HEIGHT)}px`;
   }, [value]);
 
   /*
@@ -56,30 +82,41 @@ export function Composer({
 
   const submit = (): void => {
     const text = value.trim();
-    if (!text || disabled) return;
+    if (!text || busy) return;
     onSend(text);
     setValue('');
   };
 
+  const showCount = value.length >= COUNT_FROM;
+
   return (
-    <div /*
-       * The bottom padding clears the iPhone home indicator, which otherwise
-       * sits on top of the send button. `max()` keeps the normal padding on
-       * every device that reports no inset.
-       */
-      className="border-t border-moss bg-bog/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6">
+    /*
+     * The bottom padding clears the iPhone home indicator, which otherwise
+     * sits on top of the send button. `max()` keeps the normal padding on
+     * every device that reports no inset.
+     */
+    <div className="border-t border-moss bg-bog pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <form
-        className="mx-auto flex max-w-3xl items-end gap-2"
+        className="mx-auto max-w-3xl px-4 sm:px-6"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <div className="flex-1 rounded-md border border-moss bg-peat transition-colors focus-within:border-forge/50">
+        {showCount ? (
+          <p id="composer-count" className="pb-1 text-right font-mono text-xs text-ash">
+            {t.chatQuestionCount
+              .replace('{n}', String(value.length))
+              .replace('{max}', String(MAX_QUESTION_CHARS))}
+          </p>
+        ) : null}
+        <div className="flex items-end gap-2">
           <textarea
             ref={ref}
+            id={COMPOSER_ID}
             value={value}
             rows={1}
+            maxLength={MAX_QUESTION_CHARS}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -89,33 +126,35 @@ export function Composer({
             }}
             placeholder={t.composerPlaceholder}
             aria-label={t.composerPlaceholder}
+            aria-describedby={showCount ? 'composer-count' : undefined}
             /*
-             * 16px on phones, not 15. Safari zooms the page when a field
-             * smaller than that takes focus and does not zoom back out, so the
-             * whole chat stays magnified for the rest of the session. Below
-             * `sm` the difference is invisible; the bug is not.
+             * 16px on touch screens, not 15: Safari zooms the page when a
+             * field smaller than that takes focus and does not zoom back out,
+             * so the whole chat stays magnified for the rest of the session.
+             * The step down follows the pointer, not the width: an iPad is
+             * wider than 640px and zoomed into it all the same.
              */
-            className="w-full resize-none bg-transparent px-3.5 py-2.5 text-base text-birch placeholder:text-ash/60 focus:outline-none sm:text-[0.95rem]"
+            className="block min-h-11 min-w-0 flex-1 resize-none rounded-md border border-moss bg-peat px-3.5 py-2 text-base leading-6 text-birch transition-colors placeholder:text-ash focus:border-forge/50 focus:outline-none sm:pointer-fine:text-[0.95rem]"
           />
-        </div>
 
-        {busy ? (
+          {/*
+           * One button that changes role rather than two that swap places, so
+           * the keyboard focus a reader left on "Preguntar" is still there on
+           * "Detener", and back again when the answer ends.
+           */}
           <button
-            type="button"
-            onClick={onStop}
-            className="h-11 shrink-0 rounded-md border border-moss px-4 text-sm text-ash transition-colors hover:border-lichen hover:text-birch sm:h-[42px]"
+            type={busy ? 'button' : 'submit'}
+            onClick={busy ? onStop : undefined}
+            disabled={!busy && value.trim() === ''}
+            className={`h-11 shrink-0 rounded-md px-5 text-sm transition-colors disabled:cursor-not-allowed ${
+              busy
+                ? 'border border-moss text-ash hover:border-lichen hover:text-birch'
+                : 'bg-forge font-medium text-bog hover:bg-forge/90 disabled:bg-moss disabled:text-ash'
+            }`}
           >
-            {t.stop}
+            {busy ? t.stop : t.send}
           </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={disabled || value.trim() === ''}
-            className="h-11 shrink-0 rounded-md bg-forge px-5 text-sm font-medium text-bog transition-all hover:bg-forge/90 disabled:cursor-not-allowed disabled:bg-moss disabled:text-ash sm:h-[42px]"
-          >
-            {t.send}
-          </button>
-        )}
+        </div>
       </form>
     </div>
   );

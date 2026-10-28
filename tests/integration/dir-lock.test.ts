@@ -79,7 +79,9 @@ describe('createDb with an on-disk database', () => {
 
     await handle.close();
     expect(existsSync(join(dir, '.wv-lock'))).toBe(false);
-  });
+    // Creating and migrating an on-disk PGlite takes ~20 s alone and well over
+    // the default minute when the whole suite runs in parallel.
+  }, 240_000);
 
   it('does not lock an in-memory database', async () => {
     const a = await createDb();

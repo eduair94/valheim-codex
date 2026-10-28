@@ -1,0 +1,124 @@
+/*
+  Chat: citation chips, source rows, answer headings and pictures. Imported
+  by the chat's page (app/page.tsx) only.
+
+  In `@layer components`, like the rest of the component CSS (spec §4.1), so a
+  utility written on the element always wins.
+
+  The `@reference` emits nothing: it gives each color-mix() below a fallback
+  in plain colour, for browsers without color-mix() (globals.css says more).
+*/
+@reference '../globals.css';
+
+@layer components {
+  /*
+    Citation marker: a chiselled chip.
+    Inline in the answer text it stays small and monospaced so a run of them
+    ([1][2]) reads as a set of marks rather than as prose. Never under 12px:
+    at 70% of the text alone it came out at 10.9px in an answer and 9.5px in
+    a table cell, under the floor every functional text keeps.
+  */
+  .rune-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.35em;
+    height: 1.35em;
+    padding: 0 0.3em;
+    margin: 0 0.12em;
+    font-family: var(--font-mono);
+    font-size: max(0.7em, 0.75rem);
+    font-weight: 600;
+    line-height: 1;
+    color: var(--color-forge);
+    background: color-mix(in srgb, var(--color-forge) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-forge) 34%, transparent);
+    border-radius: 3px;
+    vertical-align: 0.15em;
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
+  }
+  /*
+    Lit, the edge does the work and the fill deepens only to forge/15, which
+    keeps the forge numeral at 4.5:1 wherever the chip sits: 5.27:1 on bog,
+    4.64:1 on peat. At forge/26 it fell to 4.26:1 on the bog page.
+  */
+  .rune-chip:hover,
+  .rune-chip:focus-visible,
+  .rune-chip[data-active='true'] {
+    background: color-mix(in srgb, var(--color-forge) 15%, transparent);
+    border-color: var(--color-forge);
+  }
+
+  /* The source row the hovered chip points at. */
+  .source-row[data-active='true'] {
+    border-color: var(--color-forge);
+    background: color-mix(in srgb, var(--color-forge) 8%, transparent);
+  }
+
+  /*
+    An answer breaks a word that would not fit its line: a URL, an identifier
+    in `code`, a model's run-on word. Without it one such word made the whole
+    thread scroll sideways on a phone, every other message sliding off with
+    it. `break-word` rather than `anywhere`, which would also shrink a table's
+    narrowest width: answer tables keep their columns and scroll in their own
+    frame.
+  */
+  .chat-answer {
+    overflow-wrap: break-word;
+  }
+
+  /*
+    Headings a model writes into an answer ("## Requisitos"). Body face and
+    weight, not Cinzel: they are sections of one answer, below the page's own
+    titles, and carved capitals at every subhead would shout. More space above
+    than below, so each heading belongs to what follows it.
+  */
+  .chat-answer h3,
+  .chat-answer h4 {
+    margin: 1.25rem 0 0.5rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--color-birch);
+    text-wrap: balance;
+  }
+  .chat-answer h3 {
+    font-size: 1.0625rem;
+  }
+  .chat-answer h4 {
+    font-size: 1rem;
+  }
+  .chat-answer > :first-child {
+    margin-top: 0;
+  }
+
+  /*
+    Answer figure: the thing itself, at no more than the size it deserves.
+
+    Capped small and left-aligned rather than full-bleed. The picture answers
+    "what does it look like", which a 160px sprite does completely; blowing it
+    up would push the text that carries the actual answer off the screen.
+
+    A fixed square box, whatever the picture's own shape: the box is laid out
+    before the image arrives, so nothing below it jumps when it does. The
+    picture is shrunk to fit it but never enlarged (`scale-down`), and sits
+    centred in it: most item icons on the wiki are 64px sprites, and stretched
+    to fill the box they came out three times their size, and blurred.
+  */
+  .answer-figure {
+    margin: 1rem 0;
+  }
+  .answer-figure img {
+    display: block;
+    width: min(220px, 60%);
+    height: auto;
+    aspect-ratio: 1;
+    object-fit: scale-down;
+    padding: 0.5rem;
+    background: color-mix(in srgb, var(--color-moss) 55%, transparent);
+    border: 1px solid var(--color-lichen);
+    border-radius: 3px;
+  }
+}

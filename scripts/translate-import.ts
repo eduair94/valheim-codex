@@ -1,73 +1,144 @@
 import './_env';
 import { readFileSync } from 'node:fs';
-import { createDb } from '../src/lib/db/create-db';
-import { getArticleBySlug, saveTranslation } from '../src/lib/db/wiki-repo';
-import { applyStrings, extractStrings } from '../src/lib/wiki/translate';
+import { captionsOf, isPublishable, mergeTranslations } from '../src/lib/wiki/translate';
+import { loadTranslationJob, releaseLease, saveTranslationWork } from '../src/lib/wiki/translate-store';
+import { COMMON_FLAGS, leaseForScript, openDatabase, parseArgs } from './translate-cli';
 
 /**
  * Applies a batch of translations produced outside the provider chain.
  *
- *   pnpm translate:import --in batch.json --model claude
+ *   pnpm translate:import --in batch.json --model claude-sonnet-4-6
+ *   pnpm translate:import --in batch.json --model claude --dry-run
  *
  * Expects what `translate:export` produced, with a `translations` array added
- * to each article. The strings are re-extracted from the database rather than
- * trusted from the file, so the slots they map to are computed here from the
- * article as it stands right now.
+ * to each article: one per exported string, in the same order. Every
+ * translation is stored in the article's memory under the English string it
+ * was made from, checked against the article as it stands now
+ * (`mergeTranslations`): an article edited since the export keeps the
+ * translations that still apply, and an entry whose two lists differ in length
+ * is skipped whole rather than merged hopefully — applying a shifted list
+ * produces a page that renders perfectly and describes the wrong things, which
+ * is far worse than one still in English.
  *
- * An article whose translation count does not match its current string count
- * is skipped whole. That mismatch means the article changed since it was
- * exported, and applying the list anyway would shift every translation onto
- * the following field — a page that renders perfectly and describes the wrong
- * things, which is far worse than one still in English.
+ * Imports add up. A long article exported in --chunk pieces is completed one
+ * import at a time, and is shown from the import that takes it past half
+ * translated, the same rule as every other path.
+ *
+ * Each article is taken under its lease, like everything else that writes a
+ * translation, and merged into its memory as of that moment — what the site
+ * translated since the export is kept. Without a memory table (a database
+ * that has not had drizzle/0009) only complete articles can be stored.
  */
 
-const args = process.argv.slice(2);
-const flag = (name: string): string | undefined => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 ? args[i + 1] : undefined;
-};
+const USAGE = 'pnpm translate:import --in batch.json --model <name> [--lang es] [--dry-run] [--pglite <dir> | --neon]';
 
-const lang = flag('lang') ?? 'es';
-const file = flag('in') ?? 'translate-batch.json';
-const model = flag('model') ?? 'claude';
+const args = parseArgs(
+  process.argv.slice(2),
+  { ...COMMON_FLAGS, in: { type: 'string' }, model: { type: 'string' }, 'dry-run': { type: 'boolean' } },
+  USAGE,
+);
 
-type Entry = { slug: string; translations: string[] };
-const batch: Entry[] = JSON.parse(readFileSync(file, 'utf8'));
-
-const handle = await createDb({ databaseUrl: process.env.DATABASE_URL });
-
-let saved = 0;
-const skipped: string[] = [];
-
-for (const entry of batch) {
-  const article = await getArticleBySlug(handle.db, entry.slug);
-  if (!article) {
-    skipped.push(`${entry.slug} (no existe)`);
-    continue;
-  }
-
-  const extraction = extractStrings(article.doc, article.title);
-  if (extraction.strings.length !== entry.translations.length) {
-    skipped.push(
-      `${entry.slug} (${entry.translations.length} traducciones para ${extraction.strings.length} cadenas)`,
-    );
-    continue;
-  }
-
-  const { doc, title } = applyStrings(article.doc, article.title, extraction, entry.translations);
-
-  await saveTranslation(handle.db, {
-    pageKey: article.pageKey,
-    lang,
-    title,
-    doc,
-    model,
-    sourceUpdatedAt: article.updatedAt,
-  });
-  saved += 1;
+if (args.has('help')) {
+  console.log(USAGE);
+  process.exit(0);
 }
 
-console.log(`Guardados ${saved} de ${batch.length} artículos en "${lang}".`);
-for (const line of skipped) console.log(`  omitido: ${line}`);
+const lang = args.flag('lang') ?? 'es';
+const file = args.flag('in') ?? 'translate-batch.json';
+const model = args.flag('model') ?? 'claude';
+const dryRun = args.has('dry-run');
 
-await handle.close();
+type Entry = { slug?: unknown; strings?: unknown; translations?: unknown };
+const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+if (!Array.isArray(parsed)) {
+  console.error(`${file} no es una lista de artículos.`);
+  process.exit(1);
+}
+const batch = parsed as Entry[];
+
+const handle = await openDatabase(args, { writes: !dryRun });
+
+let shown = 0;
+let kept = 0;
+const skipped: string[] = [];
+
+try {
+  for (const entry of batch) {
+    const slug = typeof entry.slug === 'string' ? entry.slug : '';
+    const job = slug ? await loadTranslationJob(handle.db, slug, lang) : null;
+    if (!job) {
+      skipped.push(`${slug || '(sin slug)'} (no existe)`);
+      continue;
+    }
+
+    const lease = dryRun ? null : await leaseForScript(handle.db, job, lang);
+    if (lease?.kind === 'held') {
+      skipped.push(`${slug} (el sitio lo sigue traduciendo; importalo de nuevo después)`);
+      continue;
+    }
+    const holder = lease?.kind === 'acquired' ? lease.holder : null;
+
+    try {
+      const merged = mergeTranslations(
+        lease?.kind === 'acquired' ? { ...job, memory: lease.memory, failures: lease.failures } : job,
+        entry,
+      );
+      if (!merged.ok) {
+        skipped.push(
+          merged.reason === 'count_mismatch'
+            ? `${slug} (${merged.translations} traducciones para ${merged.strings} cadenas)`
+            : `${slug} (sin "translations")`,
+        );
+        continue;
+      }
+
+      const { applied, added, obsolete } = merged;
+      const publishable = isPublishable(applied.total, applied.pending);
+      let stored = true;
+      let visible = publishable;
+      if (!dryRun) {
+        const saved = await saveTranslationWork(handle.db, {
+          pageKey: job.pageKey,
+          lang,
+          lease: holder,
+          release: true,
+          memory: applied.memory,
+          failures: merged.failures,
+          pending: applied.pending,
+          publish: publishable
+            ? { title: applied.title, doc: applied.doc, model, version: job.version, captions: captionsOf(applied.doc, job.doc) }
+            : null,
+        });
+        stored = saved.memory === 'stored' || saved.published;
+        visible = saved.published;
+        if (saved.memory === 'lost') {
+          skipped.push(`${slug} (el sitio lo tomó mientras tanto; importalo de nuevo)`);
+          continue;
+        }
+      }
+      if (!stored) {
+        skipped.push(`${slug} (incompleto, y sin article_translation_memory no se guarda a medias)`);
+        continue;
+      }
+
+      if (visible) shown += 1;
+      else kept += 1;
+      const notes = [
+        applied.pending > 0 ? `${applied.pending} cadenas por traducir` : '',
+        obsolete > 0 ? `${obsolete} ya no están en el artículo` : '',
+        visible ? '' : 'todavía no se muestra',
+      ].filter(Boolean);
+      console.log(`  ${slug.padEnd(34)} ${added} traducciones${notes.length ? ` (${notes.join(', ')})` : ''}`);
+    } finally {
+      if (holder) await releaseLease(handle.db, { pageKey: job.pageKey, lang, holder });
+    }
+  }
+} finally {
+  await handle.close();
+}
+
+console.log(
+  `${dryRun ? 'Simulación: se habrían guardado' : 'Guardados'} ${shown + kept} de ${batch.length} artículos en "${lang}"` +
+    ` — ${shown} visibles, ${kept} guardados para completar.`,
+);
+for (const line of skipped) console.log(`  omitido: ${line}`);

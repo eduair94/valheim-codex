@@ -1,0 +1,521 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T03:35:01.828Z",
+  "title": "Design System: Valheim Codex",
+  "extensions": {
+    "colorMeta": {
+      "bog": {
+        "role": "neutral",
+        "displayName": "Bog",
+        "canonical": "#14170f",
+        "tonalRamp": [
+          "oklch(15.0% 0.016 124.5)",
+          "oklch(26.4% 0.016 124.5)",
+          "oklch(37.9% 0.016 124.5)",
+          "oklch(49.3% 0.016 124.5)",
+          "oklch(60.7% 0.016 124.5)",
+          "oklch(72.1% 0.016 124.5)",
+          "oklch(83.6% 0.016 124.5)",
+          "oklch(95.0% 0.016 124.5)"
+        ]
+      },
+      "peat": {
+        "role": "neutral",
+        "displayName": "Peat",
+        "canonical": "#1d2216",
+        "tonalRamp": [
+          "oklch(15.0% 0.023 126.4)",
+          "oklch(26.4% 0.023 126.4)",
+          "oklch(37.9% 0.023 126.4)",
+          "oklch(49.3% 0.023 126.4)",
+          "oklch(60.7% 0.023 126.4)",
+          "oklch(72.1% 0.023 126.4)",
+          "oklch(83.6% 0.023 126.4)",
+          "oklch(95.0% 0.023 126.4)"
+        ]
+      },
+      "moss": {
+        "role": "neutral",
+        "displayName": "Moss",
+        "canonical": "#2a3120",
+        "tonalRamp": [
+          "oklch(15.0% 0.031 126.4)",
+          "oklch(26.4% 0.031 126.4)",
+          "oklch(37.9% 0.031 126.4)",
+          "oklch(49.3% 0.031 126.4)",
+          "oklch(60.7% 0.031 126.4)",
+          "oklch(72.1% 0.031 126.4)",
+          "oklch(83.6% 0.031 126.4)",
+          "oklch(95.0% 0.031 126.4)"
+        ]
+      },
+      "lichen": {
+        "role": "neutral",
+        "displayName": "Lichen",
+        "canonical": "#3a4330",
+        "tonalRamp": [
+          "oklch(15.0% 0.034 128.6)",
+          "oklch(26.4% 0.034 128.6)",
+          "oklch(37.9% 0.034 128.6)",
+          "oklch(49.3% 0.034 128.6)",
+          "oklch(60.7% 0.034 128.6)",
+          "oklch(72.1% 0.034 128.6)",
+          "oklch(83.6% 0.034 128.6)",
+          "oklch(95.0% 0.034 128.6)"
+        ]
+      },
+      "birch": {
+        "role": "neutral",
+        "displayName": "Birch Bark",
+        "canonical": "#e8e2d0",
+        "tonalRamp": [
+          "oklch(15.0% 0.025 91.6)",
+          "oklch(26.4% 0.025 91.6)",
+          "oklch(37.9% 0.025 91.6)",
+          "oklch(49.3% 0.025 91.6)",
+          "oklch(60.7% 0.025 91.6)",
+          "oklch(72.1% 0.025 91.6)",
+          "oklch(83.6% 0.025 91.6)",
+          "oklch(95.0% 0.025 91.6)"
+        ]
+      },
+      "ash": {
+        "role": "neutral",
+        "displayName": "Ash",
+        "canonical": "#9aa089",
+        "tonalRamp": [
+          "oklch(15.0% 0.033 119.2)",
+          "oklch(26.4% 0.033 119.2)",
+          "oklch(37.9% 0.033 119.2)",
+          "oklch(49.3% 0.033 119.2)",
+          "oklch(60.7% 0.033 119.2)",
+          "oklch(72.1% 0.033 119.2)",
+          "oklch(83.6% 0.033 119.2)",
+          "oklch(95.0% 0.033 119.2)"
+        ]
+      },
+      "forge": {
+        "role": "primary",
+        "displayName": "Forge Light",
+        "canonical": "#d98a34",
+        "tonalRamp": [
+          "oklch(15.0% 0.137 63.9)",
+          "oklch(26.4% 0.137 63.9)",
+          "oklch(37.9% 0.137 63.9)",
+          "oklch(49.3% 0.137 63.9)",
+          "oklch(60.7% 0.137 63.9)",
+          "oklch(72.1% 0.137 63.9)",
+          "oklch(83.6% 0.137 63.9)",
+          "oklch(95.0% 0.137 63.9)"
+        ]
+      },
+      "forge-dim": {
+        "role": "primary",
+        "displayName": "Forge Dim",
+        "canonical": "#8a5720",
+        "tonalRamp": [
+          "oklch(15.0% 0.096 64.0)",
+          "oklch(26.4% 0.096 64.0)",
+          "oklch(37.9% 0.096 64.0)",
+          "oklch(49.3% 0.096 64.0)",
+          "oklch(60.7% 0.096 64.0)",
+          "oklch(72.1% 0.096 64.0)",
+          "oklch(83.6% 0.096 64.0)",
+          "oklch(95.0% 0.096 64.0)"
+        ]
+      },
+      "blood": {
+        "role": "tertiary",
+        "displayName": "Blood",
+        "canonical": "#a33b2a",
+        "tonalRamp": [
+          "oklch(15.0% 0.141 31.7)",
+          "oklch(26.4% 0.141 31.7)",
+          "oklch(37.9% 0.141 31.7)",
+          "oklch(49.3% 0.141 31.7)",
+          "oklch(60.7% 0.141 31.7)",
+          "oklch(72.1% 0.141 31.7)",
+          "oklch(83.6% 0.141 31.7)",
+          "oklch(95.0% 0.141 31.7)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Cinzel 600, uppercase, 0.14em: the app name and page titles (1.5rem; 1.875rem from 640px; the home name 2.25rem). Never running text."
+      },
+      "headline": {
+        "displayName": "Section title",
+        "purpose": "Cinzel 600, uppercase, 0.14em: section heads, 1.125rem (1.25rem from 640px in the guide; 1rem to 1.125rem in articles)."
+      },
+      "title": {
+        "displayName": "Subhead",
+        "purpose": "Spectral 600, 1.0625rem: sentence-case subheads too long for tracked capitals (guide h3, headings inside an answer)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Spectral 400, 16px at 1.65: everything meant to be read; reading text holds 65-72ch (articles at 1.7)."
+      },
+      "body-small": {
+        "displayName": "Interface text",
+        "purpose": "Spectral 400, 14px: buttons, tiles, hints, secondary lines."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "JetBrains Mono 11px, uppercase, 0.16em, ash: section labels, column heads, kickers. The only role under 12px."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "JetBrains Mono 12px, tabular figures: counts, dates, meta lines, facets, compare cells."
+      },
+      "quantity": {
+        "displayName": "Quantity",
+        "purpose": "JetBrains Mono 13px 600, tabular, forge: a count compared against the chest (\"×20\")."
+      },
+      "chip": {
+        "displayName": "Chip",
+        "purpose": "JetBrains Mono at 85% of the surrounding text, never under 12px (max(0.85em, 0.75rem)): an in-game name set as a chip in the guide (guide.css:315-324)."
+      },
+      "citation": {
+        "displayName": "Citation",
+        "purpose": "JetBrains Mono 600 at 70% of the text, never under 12px (max(0.7em, 0.75rem)): the citation chip inside a chat answer (chat.css:30)."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float-lift",
+        "value": "0 4px 12px -4px rgb(20 23 15 / 0.7)",
+        "purpose": "The value new floating controls take: the guide pill's short, close geometry (the only one with a written reason) cast in bog at 70%, because the Warm Ground Rule admits no pure black. No control draws it yet."
+      },
+      {
+        "name": "float-lift-guide",
+        "value": "0 4px 12px -4px rgb(0 0 0 / 0.7)",
+        "purpose": "The guide's contents pill (guide.css:686): \"a short, close shadow: enough to lift it off the line of text passing underneath\". Drift: pure black."
+      },
+      {
+        "name": "float-lift-chat",
+        "value": "0 4px 12px rgb(0 0 0 / 0.35)",
+        "purpose": "The chat's jump-to-latest pill (chat.tsx:617). Drift: pure black, and a geometry of its own."
+      },
+      {
+        "name": "float-lift-ask",
+        "value": "0 10px 15px -3px rgb(20 23 15 / 0.6), 0 4px 6px -4px rgb(20 23 15 / 0.6)",
+        "purpose": "The floating \"ask about this\" button: Tailwind shadow-lg coloured bog at 60% (ask-button.tsx:99). In the palette, but longer than the guide's."
+      },
+      {
+        "name": "pinned-edge",
+        "value": "inset -1px 0 0 var(--color-moss)",
+        "purpose": "The hairline that travels with a pinned first column (tables.css:201, compare.css:108)."
+      },
+      {
+        "name": "pair-hairline",
+        "value": "0 -1px 0 color-mix(in srgb, var(--color-moss) 60%, transparent)",
+        "purpose": "Row rules in the two-column stat layout, 768-1023px (tables.css:569)."
+      },
+      {
+        "name": "bleed-band",
+        "value": "0 0 0 100vmax var(--color-bog)",
+        "purpose": "Not elevation: paints the sticky search bar's background to the viewport edges, clipped (search-view.tsx:530)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ember",
+        "value": "ember 1.4s ease-in-out infinite; opacity 0.35->1, translateY 0->-2px, scale 0.9->1.1; dots 2 and 3 delayed 0.18s and 0.36s",
+        "purpose": "The one ambient motion: three dots while waiting for an answer or search results, one beside a translation's status (base.css:262-299; translate-on-view.tsx:171)."
+      },
+      {
+        "name": "rise",
+        "value": "rise 260ms ease-out both; opacity 0->1, translateY 6px->0",
+        "purpose": "A chat message, or the empty state, arriving (base.css:274-303)."
+      },
+      {
+        "name": "nav-progress",
+        "value": "shown after 150ms with an 80ms fade; scaleX 0.08->0.9 over 20000ms cubic-bezier(0, .55, .45, 1); 250ms ease-in fade when the page lands",
+        "purpose": "The 2px forge page-load bar (nav-progress.tsx, nav-tracker.ts). Under reduced motion a still full bar after the same pause."
+      },
+      {
+        "name": "state-colour",
+        "value": "150ms ease-out (route sheets); 150ms cubic-bezier(0.4, 0, 0.2, 1) (Tailwind transition-colors)",
+        "purpose": "Colour, border and fill changes on hover and selection."
+      },
+      {
+        "name": "chip-state",
+        "value": "120ms ease",
+        "purpose": "Citation chip fill and edge (chat.css:39-41)."
+      },
+      {
+        "name": "float-hide",
+        "value": "200ms; translateY(1rem) and opacity 0; the contents pill on CSS ease-out (guide.css:690-692), the ask button on Tailwind's default cubic-bezier(0.4, 0, 0.2, 1) (ask-button.tsx:87)",
+        "purpose": "The ask button and the contents pill stepping aside while the reader scrolls down (ask-button.tsx:87, guide.css:690-702)."
+      },
+      {
+        "name": "drawer",
+        "value": "200ms translate on Tailwind's ease-out, cubic-bezier(0, 0, 0.2, 1)",
+        "purpose": "The chat's conversation drawer below 1024px (chat.tsx:518)."
+      },
+      {
+        "name": "gallery-hover",
+        "value": "scale(1.03) over 200ms",
+        "purpose": "A gallery thumbnail under the pointer (gallery.tsx:130)."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation-duration and transition-duration 0.01ms !important; one iteration; scroll-behavior auto",
+        "purpose": "Unlayered override that stops every animation (base.css:310-319)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "chip-narrow",
+        "value": "< 336px (21rem)"
+      },
+      {
+        "name": "table-cards",
+        "value": "<= 639px"
+      },
+      {
+        "name": "sm",
+        "value": "640px (40rem)"
+      },
+      {
+        "name": "md",
+        "value": "768px (48rem)"
+      },
+      {
+        "name": "lg",
+        "value": "1024px (64rem)"
+      },
+      {
+        "name": "compare-bleed",
+        "value": "1152px (72rem)"
+      },
+      {
+        "name": "xl",
+        "value": "1280px (80rem)"
+      },
+      {
+        "name": "short-landscape",
+        "value": "height <= 480px"
+      },
+      {
+        "name": "short-screen",
+        "value": "height <= 512px (32rem)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one forge-filled action of a form: send, retry, connect.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Preguntar</button> <button class=\"ds-btn-primary\" type=\"button\" disabled>Preguntar</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border: 0; border-radius: 6px; background: var(--color-forge, #d98a34); color: var(--color-bog, #14170f); font-family: var(--font-body, Georgia, serif); font-size: 14px; line-height: 20px; cursor: pointer; transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { background: color-mix(in srgb, var(--color-forge, #d98a34) 90%, transparent); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; } .ds-btn-primary:disabled { background: var(--color-moss, #2a3120); color: var(--color-ash, #9aa089); cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "An outlined action beside the primary, or a way back.",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Ir a la búsqueda</a>",
+      "css": "/* border-box only where a size is set: the panel gives this snippet a shadow root of its own, which its box-sizing reset does not reach, and the app sizes every box border-box (Tailwind preflight). */ .ds-btn-secondary { box-sizing: border-box; display: inline-flex; align-items: center; height: 44px; padding: 0 16px; border: 1px solid var(--color-moss, #2a3120); border-radius: 6px; background: transparent; color: var(--color-birch, #e8e2d0); font-family: var(--font-body, Georgia, serif); font-size: 14px; line-height: 20px; text-decoration: none; transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-secondary:hover { border-color: var(--color-lichen, #3a4330); background: var(--color-peat, #1d2216); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "The search page's field: peat on the bog page, 16px so iOS never zooms, a forge edge on focus.",
+      "html": "<form role=\"search\" class=\"ds-search\"><label class=\"ds-visually-hidden\" for=\"ds-q\">Buscá un objeto, criatura o bioma…</label><input id=\"ds-q\" class=\"ds-input-search\" type=\"search\" placeholder=\"Buscá un objeto, criatura o bioma…\"></form>",
+      "css": "/* border-box only where a size is set: the panel gives this snippet a shadow root of its own, which its box-sizing reset does not reach, and the app sizes every box border-box (Tailwind preflight). */ .ds-search { max-width: 42rem; } .ds-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } .ds-input-search { box-sizing: border-box; width: 100%; padding: 12px 16px; border: 1px solid var(--color-moss, #2a3120); border-radius: 6px; background: var(--color-peat, #1d2216); color: var(--color-birch, #e8e2d0); font-family: var(--font-body, Georgia, serif); font-size: 16px; line-height: 1.65; transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input-search::placeholder { color: var(--color-ash, #9aa089); } .ds-input-search:focus { border-color: color-mix(in srgb, var(--color-forge, #d98a34) 50%, transparent); } .ds-input-search:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "segment",
+      "description": "Mutually exclusive views as links (SegmentedLinks): the reference for every switch.",
+      "html": "<div class=\"ds-segmented\" role=\"group\" aria-label=\"Vista\"><a class=\"ds-segment\" href=\"#\">Lista</a><a class=\"ds-segment\" href=\"#\" aria-current=\"page\">Comparar</a></div>",
+      "css": ".ds-segmented { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--color-moss, #2a3120); border-radius: 6px; } .ds-segment { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 2px; color: var(--color-ash, #9aa089); font-family: var(--font-body, Georgia, serif); font-size: 14px; line-height: 20px; text-decoration: none; white-space: nowrap; transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-segment:hover { background: var(--color-moss, #2a3120); color: var(--color-birch, #e8e2d0); } .ds-segment[aria-current] { background: var(--color-forge, #d98a34); color: var(--color-bog, #14170f); } .ds-segment:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: -2px; } .ds-segment[aria-current]:focus-visible { outline-color: var(--color-birch, #e8e2d0); }"
+    },
+    {
+      "name": "Tab Bar",
+      "kind": "nav",
+      "refersTo": "tab-bar",
+      "description": "The phone navigation, fixed to the bottom edge: a glyph over a 12px label, the current tab forge with a 2px mark facing the page.",
+      "html": "<nav class=\"ds-tabbar\" aria-label=\"Wiki\"><a class=\"ds-tab\" href=\"#\" aria-current=\"page\"><span class=\"ds-tab-icon\" aria-hidden=\"true\">⌕</span>Buscar</a><a class=\"ds-tab\" href=\"#\"><span class=\"ds-tab-icon\" aria-hidden=\"true\">☰</span>Explorar</a><a class=\"ds-tab\" href=\"#\"><span class=\"ds-tab-icon\" aria-hidden=\"true\">ᛦ</span>Guía</a><a class=\"ds-tab\" href=\"#\"><span class=\"ds-tab-icon\" aria-hidden=\"true\">✦</span>Chat</a></nav>",
+      "css": "/* border-box only where a size is set: the panel gives this snippet a shadow root of its own, which its box-sizing reset does not reach, and the app sizes every box border-box (Tailwind preflight). */ .ds-tabbar { box-sizing: border-box; display: flex; height: 56px; max-width: 390px; border-top: 1px solid var(--color-moss, #2a3120); background: color-mix(in srgb, var(--color-peat, #1d2216) 95%, transparent); backdrop-filter: blur(8px); } .ds-tab { position: relative; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 44px; border-radius: 6px; color: var(--color-ash, #9aa089); font-family: var(--font-body, Georgia, serif); font-size: 12px; line-height: 1; text-decoration: none; transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-tab:hover { color: var(--color-birch, #e8e2d0); } .ds-tab[aria-current] { color: var(--color-forge, #d98a34); } .ds-tab[aria-current]::before { content: \"\"; position: absolute; left: 12px; right: 12px; top: -1px; height: 2px; border-radius: 999px; background: var(--color-forge, #d98a34); } .ds-tab-icon { font-size: 16px; line-height: 1; } .ds-tab:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: -2px; }"
+    },
+    {
+      "name": "Item Chip",
+      "kind": "chip",
+      "refersTo": "chip-item",
+      "description": "An in-game name inside prose, in English as the game shows it, linked to its article (.g-item).",
+      "html": "<p class=\"ds-prose\">Farmeá <a class=\"ds-chip-item\" href=\"#\" lang=\"en\">Copper Ore</a> y <a class=\"ds-chip-item\" href=\"#\" lang=\"en\">Tin Ore</a> en el Bosque negro.</p>",
+      "css": ".ds-prose { max-width: 68ch; color: color-mix(in srgb, var(--color-birch, #e8e2d0) 90%, transparent); font-family: var(--font-body, Georgia, serif); font-size: 15.2px; line-height: 1.65; } .ds-chip-item { padding: 2px 4px; border-radius: 4px; background: color-mix(in srgb, var(--color-moss, #2a3120) 50%, transparent); color: var(--color-forge, #d98a34); font-family: var(--font-mono, ui-monospace, monospace); font-size: max(0.85em, 0.75rem); text-decoration: none; white-space: nowrap; transition: background-color 150ms ease-out; } .ds-chip-item:hover { background: var(--color-moss, #2a3120); } .ds-chip-item:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; }"
+    },
+    {
+      "name": "Browse Tile",
+      "kind": "card",
+      "refersTo": "tile",
+      "description": "A way into a biome, category or station: picture plate, two-line name, mono count; biomes carry a forge ordinal.",
+      "html": "<a class=\"ds-tile\" href=\"#\"><span class=\"ds-tile-plate\" aria-hidden=\"true\">ᛚ</span><span class=\"ds-tile-body\"><span class=\"ds-tile-name\"><span class=\"ds-tile-ordinal\" aria-hidden=\"true\">2</span>Bosque negro</span><span class=\"ds-tile-count\">22</span></span></a>",
+      "css": "/* border-box only where a size is set: the panel gives this snippet a shadow root of its own, which its box-sizing reset does not reach, and the app sizes every box border-box (Tailwind preflight). */ .ds-tile { box-sizing: border-box; display: flex; align-items: center; gap: 8px; max-width: 240px; min-height: 64px; padding: 8px; border: 1px solid var(--color-moss, #2a3120); border-radius: 6px; background: var(--color-peat, #1d2216); text-decoration: none; transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-tile:hover { border-color: color-mix(in srgb, var(--color-forge, #d98a34) 50%, transparent); background: color-mix(in srgb, var(--color-moss, #2a3120) 40%, transparent); } .ds-tile:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; } .ds-tile-plate { box-sizing: border-box; display: flex; width: 56px; height: 44px; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--color-moss, #2a3120) 70%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--color-bog, #14170f) 60%, transparent); color: var(--color-ash, #9aa089); font-size: 14px; } .ds-tile-body { min-width: 0; flex: 1; } .ds-tile-name { display: block; color: var(--color-birch, #e8e2d0); font-family: var(--font-body, Georgia, serif); font-size: 14px; line-height: 1.375; } .ds-tile-ordinal { margin-right: 8px; color: var(--color-forge, #d98a34); font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; } .ds-tile-count { display: block; margin-top: 4px; color: var(--color-ash, #9aa089); font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Recipe Tiles",
+      "kind": "custom",
+      "refersTo": "recipe-tile",
+      "description": "The game's crafting panel, borrowed: icon plate, name, and the count in forge mono; a material with no article keeps a plain tile.",
+      "html": "<ul class=\"ds-recipe\"><li><a class=\"ds-recipe-tile\" href=\"#\"><span class=\"ds-recipe-icon\" aria-hidden=\"true\">◆</span><span><span class=\"ds-recipe-name\">Madera</span><span class=\"ds-recipe-qty\">×2</span></span></a></li><li><a class=\"ds-recipe-tile\" href=\"#\"><span class=\"ds-recipe-icon\" aria-hidden=\"true\">◆</span><span><span class=\"ds-recipe-name\">Hierro</span><span class=\"ds-recipe-qty\">×20</span></span></a></li><li><span class=\"ds-recipe-tile ds-recipe-plain\"><span class=\"ds-recipe-icon\" aria-hidden=\"true\">◆</span><span><span class=\"ds-recipe-name\">Retazos de cuero</span><span class=\"ds-recipe-qty\">×3</span></span></span></li></ul>",
+      "css": "/* border-box only where a size is set: the panel gives this snippet a shadow root of its own, which its box-sizing reset does not reach, and the app sizes every box border-box (Tailwind preflight). */ .ds-recipe { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-width: 22rem; margin: 0; padding: 0; list-style: none; } .ds-recipe-tile { box-sizing: border-box; display: flex; height: 100%; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--color-moss, #2a3120); border-radius: 6px; background: color-mix(in srgb, var(--color-peat, #1d2216) 40%, transparent); text-decoration: none; transition: border-color 150ms ease-out, background-color 150ms ease-out; } a.ds-recipe-tile:hover { border-color: color-mix(in srgb, var(--color-forge, #d98a34) 60%, transparent); background: var(--color-peat, #1d2216); } a.ds-recipe-tile:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; } .ds-recipe-plain { border-color: color-mix(in srgb, var(--color-moss, #2a3120) 60%, transparent); background: color-mix(in srgb, var(--color-peat, #1d2216) 20%, transparent); } .ds-recipe-icon { display: flex; width: 40px; height: 40px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 2px; background: color-mix(in srgb, var(--color-bog, #14170f) 60%, transparent); color: var(--color-lichen, #3a4330); font-size: 14px; } .ds-recipe-name, .ds-recipe-qty { display: block; font-size: 13px; line-height: 1.25; } .ds-recipe-name { color: var(--color-birch, #e8e2d0); font-family: var(--font-body, Georgia, serif); text-wrap: balance; } .ds-recipe-qty { color: var(--color-forge, #d98a34); font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Stat List",
+      "kind": "card",
+      "refersTo": "stat-row",
+      "description": "A labelled group of stats: label left in ash, value right in mono birch, hairlines and a faint stripe; nothing clipped.",
+      "html": "<section class=\"ds-stat-group\"><h3 class=\"ds-stat-label\">Propiedades</h3><dl class=\"ds-stat-list\"><div class=\"ds-stat-row\"><dt>Peso</dt><dd>0.8</dd></div><div class=\"ds-stat-row\"><dt>Durabilidad</dt><dd>200</dd></div><div class=\"ds-stat-row\"><dt>Nivel de fabricación</dt><dd>2</dd></div></dl></section>",
+      "css": ".ds-stat-group { max-width: 22rem; } .ds-stat-label { margin: 0 0 8px; color: var(--color-ash, #9aa089); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase; } .ds-stat-list { margin: 0; border: 1px solid var(--color-moss, #2a3120); border-radius: 6px; } .ds-stat-row { display: flex; align-items: baseline; gap: 16px; padding: 8px 12px; } .ds-stat-row + .ds-stat-row { border-top: 1px solid color-mix(in srgb, var(--color-moss, #2a3120) 60%, transparent); } .ds-stat-row:nth-child(odd) { background: color-mix(in srgb, var(--color-peat, #1d2216) 40%, transparent); } .ds-stat-row:first-child { border-top-left-radius: 5px; border-top-right-radius: 5px; } .ds-stat-row:last-child { border-bottom-left-radius: 5px; border-bottom-right-radius: 5px; } .ds-stat-row dt { flex: 1; min-width: 0; color: var(--color-ash, #9aa089); font-family: var(--font-body, Georgia, serif); font-size: 14px; } .ds-stat-row dd { max-width: 60%; margin: 0; text-align: right; color: var(--color-birch, #e8e2d0); font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Citations and Sources",
+      "kind": "custom",
+      "refersTo": "rune-chip",
+      "description": "A chat answer's citation chip and its source rows, each source numbered with a Futhark rune beside its numeral. The chip as the chat draws it: never under 12px, and lit to forge/15 at most, which keeps 4.5:1 on bog and on peat.",
+      "html": "<section class=\"ds-sources\" aria-label=\"Fuentes\"><p class=\"ds-answer\">La espada de hierro se fabrica en la forja <a class=\"ds-rune-chip\" href=\"#\">1</a>.</p><div class=\"ds-sources-head\"><span class=\"ds-sources-label\">Fuentes</span><span class=\"ds-sources-rule\" aria-hidden=\"true\"></span></div><ul class=\"ds-source-list\"><li><a class=\"ds-source-row\" href=\"#\"><span class=\"ds-rune\" aria-hidden=\"true\">ᚠ</span><span class=\"ds-source-n\">1</span><span class=\"ds-source-title\">Iron sword<span class=\"ds-source-path\"> › Crafting</span></span><span class=\"ds-source-go\" aria-hidden=\"true\">›</span></a></li><li><a class=\"ds-source-row\" href=\"#\"><span class=\"ds-rune\" aria-hidden=\"true\">ᚢ</span><span class=\"ds-source-n\">2</span><span class=\"ds-source-title\">Forge</span><span class=\"ds-source-go\" aria-hidden=\"true\">↗</span></a></li></ul></section>",
+      "css": "/* border-box only where a size is set: the panel gives this snippet a shadow root of its own, which its box-sizing reset does not reach, and the app sizes every box border-box (Tailwind preflight). */ .ds-sources { max-width: 68ch; } .ds-answer { margin: 0 0 20px; color: color-mix(in srgb, var(--color-birch, #e8e2d0) 95%, transparent); font-family: var(--font-body, Georgia, serif); font-size: 15.6px; line-height: 1.7; } .ds-rune-chip { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-width: 1.35em; height: 1.35em; padding: 0 0.3em; margin: 0 0.12em; border: 1px solid color-mix(in srgb, var(--color-forge, #d98a34) 34%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--color-forge, #d98a34) 12%, transparent); color: var(--color-forge, #d98a34); font-family: var(--font-mono, ui-monospace, monospace); font-size: max(0.7em, 0.75rem); font-weight: 600; line-height: 1; text-decoration: none; vertical-align: 0.15em; transition: background 120ms ease, border-color 120ms ease; } .ds-rune-chip:hover, .ds-rune-chip:focus-visible { background: color-mix(in srgb, var(--color-forge, #d98a34) 15%, transparent); border-color: var(--color-forge, #d98a34); } .ds-rune-chip:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; } .ds-sources-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; } .ds-sources-label { color: var(--color-ash, #9aa089); font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; } .ds-sources-rule { height: 1px; flex: 1; background: var(--color-moss, #2a3120); } .ds-source-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; } .ds-source-row { box-sizing: border-box; display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; text-decoration: none; transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-source-row:hover { border-color: var(--color-moss, #2a3120); background: var(--color-peat, #1d2216); } .ds-source-row:focus-visible { outline: 2px solid var(--color-forge, #d98a34); outline-offset: 2px; } .ds-rune { box-sizing: border-box; display: flex; width: 24px; height: 24px; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--color-forge, #d98a34) 30%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--color-forge, #d98a34) 10%, transparent); color: var(--color-forge, #d98a34); font-size: 14px; } .ds-source-n { color: var(--color-ash, #9aa089); font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; } .ds-source-title { min-width: 0; flex: 1; overflow: hidden; color: var(--color-birch, #e8e2d0); font-family: var(--font-body, Georgia, serif); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; } .ds-source-path { color: var(--color-ash, #9aa089); } .ds-source-go { flex-shrink: 0; color: var(--color-ash, #9aa089); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Firelit Camp",
+    "overview": "The Codex is read at night beside a fire. The ground is peat-dark olive instead of a dark-mode black, the text is cream that reads as birch bark, and one amber accent reads as forge light (`src/app/globals.css:31-48`). Every neutral is warm-shifted on purpose, because \"a neutral grey anywhere in this palette flattens the whole thing\": in OKLCH the five olive neutrals (bog, peat, moss, lichen, ash) carry chroma between 0.016 and 0.034 at a hue of 119 to 129, and birch, the cream text, sits at a hue of about 92 with chroma 0.025. Forge light falls only where the eye should go: the tab the reader is on, a quantity to compare against the chest, the action to take, keyboard focus, and the citations, runes and in-game names that lead somewhere.\n\nIt is a field reference, not a showcase. The data is the page: identity, then stats, then prose (`src/components/wiki/article-view.tsx`). Numbers are set in JetBrains Mono with tabular figures so they line up; names and titles are carved Cinzel capitals; everything meant to be read is in Spectral, a serif drawn for screens (`src/app/layout.tsx:13-47`). Containers stay quiet: 1px moss hairlines, 6px corners, and tonal steps from bog to peat to moss instead of shadows. Runes are the app's ordinals and its mark, because Valheim delivers its lore on runestones and the Codex's sources are its lore (`src/lib/i18n/format.ts`).\n\nIt is built for one hand, mid-game. On phones the navigation is a bottom tab bar, every control is 44px on a touch screen, floating buttons sit above the bar and step aside while the reader scrolls down, and nothing scrolls the page sideways. Motion is nearly absent: an ember pulses while an answer is on its way, a message rises 6px as it arrives, a 2px forge line runs while a page loads. The code's own comments reject the dark-mode default, spreadsheet chrome on answer tables, spinners as the waiting state, the browser's grey tap flash, a cold black lightbox, tracked capitals on anything longer than a few words, and a third colour for links. This file records the system as implemented on 2026-10-27; new surfaces extend it and never redesign it.",
+    "keyCharacteristics": [
+      "Peat-dark, warm-shifted ground with one amber accent; blood only for failures and for warnings of harm.",
+      "Three faces with one job each: Cinzel for names, Spectral for reading, JetBrains Mono for numbers and labels.",
+      "Flat tonal layers and 1px moss hairlines; shadows only under the few controls that float.",
+      "Data first: label-left, value-right rows, tabular figures, forge quantities.",
+      "Phone-first and one-handed: bottom tab bar, 44px touch targets, no sideways scroll.",
+      "Runes as ordinals and mark; text glyphs and thin line icons, never emoji.",
+      "Near-still: an ember, a rise, a progress line, and all of it stops under reduced motion."
+    ],
+    "rules": [
+      {
+        "name": "The One Light Rule",
+        "body": "Forge is the only accent, and it marks where the reader is, what counts and what can be done. A solid forge fill means \"selected\" (a switch's segment, the current tab's mark), \"do this\" (a form's one primary action) or \"working\" (the page-load bar, the ember); forge text, edges and tints mark the current place, quantities and search matches, kickers and ordinals, citations, the guide's in-game name chips and links, outlined secondary actions (\"ask about this\", \"new question\", a banner's action), alerts, focus, and the hover edge of tiles, cards, chips and outlined controls. Links in running text, and the names that title rows, tiles and results, stay birch, lit only by a forge underline or hover. Everything else is birch or ash, ranked by weight and position.",
+        "section": "colors"
+      },
+      {
+        "name": "The Warm Ground Rule",
+        "body": "No neutral grey, no pure black and no pure white in any fill, text, border or shadow. Tailwind's default palette is still available, because the `@theme` block does not reset it (`--color-*: initial`), so a class such as `bg-gray-800` or `text-white` would bring one in; none is in the served CSS today, and none should be.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tint, Not Hue Rule",
+        "body": "A state is a token at an alpha (a forge/10 fill under a forge/30 border; a moss/60 hairline; a peat/40 stripe), never a new colour.",
+        "section": "colors"
+      },
+      {
+        "name": "The Blood Costs Something Rule",
+        "body": "Blood marks failures and warnings that cost the player something, and nothing else; a tip or a note, however important, is not a warning.",
+        "section": "colors"
+      },
+      {
+        "name": "The Carved Names Rule",
+        "body": "Cinzel only for the app's name, page and section titles and item names; capitals tire the eye after a line, so never running text.",
+        "section": "typography"
+      },
+      {
+        "name": "The Short Caps Rule",
+        "body": "Tracked capitals only for a few words (\"nothing longer than a few words\", `base.css:196-197`), such as the three of \"Recursos para farmear\". A table caption over 24 characters or a column heading over 20 is set in sentence case (`src/components/wiki/article/data-table.tsx:8-11`), and nothing functional is smaller than 12px except an 11px label.",
+        "section": "typography"
+      },
+      {
+        "name": "The Aligned Digits Rule",
+        "body": "A number compared across rows is JetBrains Mono with tabular figures; a count compared against the chest is also weight 600 and forge (\"×20\").",
+        "section": "typography"
+      },
+      {
+        "name": "The 16px Field Rule",
+        "body": "Every text field and every select is 16px whenever the pointer is coarse, or iOS zooms the page into it and does not zoom back out. Tie the size to the pointer, not the width: 12 to 14px on a fine pointer, 16px under `pointer: coarse`, as the nav search (`src/components/shell/nav-search.tsx:28-30,42`), the chat's model picker (`src/components/chat/account-panel.tsx:100-101`) and the compare page's sort select (`src/components/wiki/lists/compare-view.tsx:362`) do; a field that steps down from 640px takes the step on a fine pointer only (`sm:pointer-fine:`), as the composer does to 15.2px (`src/components/composer.tsx:137`) and the Gemini key field and the connect page's model select to 14px (`src/components/connect/gemini-panel.tsx:107,142`), so an iPad keeps 16px; or 16px everywhere, as the search page, the 404 search and the sign-in fields are.",
+        "section": "typography"
+      },
+      {
+        "name": "The Thumb Rule",
+        "body": "On phones the navigation is at the bottom; anything fixed sits at `bottom: calc(var(--tabbar-h) + <gap>)`, hides while the reader scrolls down past a 12px threshold, and is always shown in the top 80px (`src/components/wiki/ask-button.tsx`, `src/components/wiki/guide/guide-toc.tsx`).",
+        "section": "layout"
+      },
+      {
+        "name": "The No Sideways Scroll Rule",
+        "body": "The page never scrolls sideways: wide tables scroll inside their own box, long words break, and end-to-end tests check it at 390px on the wiki and the chat and at 360px on the guide (`tests/e2e/wiki.spec.ts:397`, `tests/e2e/app.spec.ts:262`, `tests/e2e/guide.spec.ts:79`).",
+        "section": "layout"
+      },
+      {
+        "name": "The Reading Order Rule",
+        "body": "Document order is visual order at every width: no reversed flex columns; nav first, then notices, then the page.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Camp Rule",
+        "body": "Surfaces are flat at rest; a resting card, tile, table or panel never casts a shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Lift Only What Floats Rule",
+        "body": "A shadow is reserved for a control fixed over scrolling text: the ask button, the contents pill, the jump pill. The three differ today; new floating controls take the floating lift above, the guide pill's short, close geometry cast in bog at 70%.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Nested Corners Rule",
+        "body": "An inner corner is the outer corner less the padding between them: 2px segments in a 6px track with 4px of padding, 4px segments in one with 2px.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Nothing Clipped Rule",
+        "body": "Never clip a container just to round it; round its first and last rows, as the stat list, the boss card and the phone cards do, so no value can be cut off. New cards, the planner's included, do the same.",
+        "section": "shapes"
+      },
+      {
+        "name": "The One Named Value Rule",
+        "body": "A single named value is shown one way, its label on the left and the value beside it on the right: the infobox's stat rows (where a phrase or a list drops under its label instead), every table's phone cards, and the boss card's facts from 640px (stacked below it). Tables, the compare table included, show values in columns under their headings instead.",
+        "section": "components"
+      },
+      {
+        "name": "The Plate Rule",
+        "body": "A picture always sits on a plate that holds its place, so a slow or missing image never moves a row.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "**Do** build every colour from the nine palette tokens (`src/app/globals.css`), and express a state as the same token at an alpha: a forge/10 fill under a forge/30 edge, moss/60 between rows, peat/40 stripes.",
+      "**Do** spend forge as the One Light Rule allows: a solid fill only for a selected segment and a form's one primary action; forge text, edges and tints for the current place, \"×20\" counts, kickers and ordinals, citations, the guide's name chips, outlined secondary actions, alerts and the 2px focus ring.",
+      "**Do** set every quantity a player compares against the chest in JetBrains Mono 13px, weight 600, tabular figures, forge, with the multiplier first (\"×20\"), as the recipe tile's count does (`.recipe-qty`).",
+      "**Do** head a group with a small tracked label (JetBrains Mono 11px, 0.16em, uppercase, ash; `.label`); when it opens a section of the page (a browse axis, an answer's sources), run a 1px moss rule across the rest of the line, and inside a panel (an infobox group, the gallery) leave the label alone.",
+      "**Do** give every control a 44px target on coarse pointers (`pointer-coarse:min-h-11`) and every result row 48px.",
+      "**Do** set every text field and select at 16px under a coarse pointer (12 to 14px is fine for a fine one), with 6px corners, a 1px moss edge, the other neutral of its surface, a lichen edge on hover and a forge/50 edge on focus.",
+      "**Do** hold reading text to 65 to 72ch (68ch is the norm) and let tables, tiles and pictures take the full width.",
+      "**Do** show a single named value with its label on the left (Spectral 14px ash) and the value on the right (mono 13px birch, tabular); below 640px turn a table into labelled cards (the phone cards, `.stack-table`, with each cell's heading in `data-label`).",
+      "**Do** round a card's first and last rows to its corner instead of clipping the card, as the stat list does (`calc(0.375rem - 1px)`).",
+      "**Do** pin anything fixed above the phone tab bar at `bottom: calc(var(--tabbar-h) + <gap>)`, hide it while the reader scrolls down, lift it with the short bog shadow (`0 4px 12px -4px`, bog at 70%), and stick things under the nav at `top: var(--nav-h)`.",
+      "**Do** put new component classes in a per-route stylesheet in `src/app/styles/` that opens with `@reference '../globals.css'`, keep them in the components layer, and import the sheet from every route that draws them; keep the home page on utilities alone.",
+      "**Do** use the ember for \"waiting for an answer\" and the 260ms rise for something arriving.",
+      "**Do** number a short ordered set of twelve or fewer (biomes, bosses, sources) with Futhark runes (`rune(n)`, which wraps after twelve), keeping the numeral beside the rune wherever a marker must be matched.",
+      "**Do** load Fandom pictures at their drawn size and with no referrer (`FANDOM_IMG_PROPS`), on a moss-edged plate that keeps the row aligned when the picture fails, never enlarged (icons `object-fit: scale-down`).",
+      "**Do** rely on the global 2px forge focus ring: drawn inside segmented or clipped controls (`.focus-inset`), and birch on forge fills (`--focus-ring`)."
+    ],
+    "donts": [
+      "**Don't** add a colour: no new hue, no neutral grey, no pure black or white (in a shadow either), and none of Tailwind's default palette, which stays available because the theme does not reset it but appears nowhere in the served CSS.",
+      "**Don't** use blood for anything but failures and warnings that cost the player something; a tip is a plain note, and offline and degraded notices are forge.",
+      "**Don't** set running text in Cinzel or in tracked capitals; captions over 24 characters and column headings over 20 go to sentence case.",
+      "**Don't** set functional text under 12px; the 11px label is the only exception, and a chip sized to its text keeps a 12px floor (`max(0.85em, 0.75rem)`).",
+      "**Don't** let a lit forge-text control fall below 4.5:1: its tint stops at forge/20 on bog and forge/15 on peat, over an opaque base.",
+      "**Don't** let anything scroll the page sideways at 360px: a wide table scrolls inside its own box, and long words break.",
+      "**Don't** give a resting surface a shadow; depth is bog, peat and moss with 1px hairlines, and only controls that float over text lift.",
+      "**Don't** add a spinner or any new looping motion, and never animate anything that the reduced-motion rule cannot stop.",
+      "**Don't** restyle or remove the focus ring with utilities (`focus-visible:outline-*`, or `focus:outline-none` alone); the unlayered global ring is the one ring.",
+      "**Don't** add rules to the two global stylesheets (`globals.css`, `base.css`) unless every page draws them: both block every route's first paint (`globals.css:4-9`), and the route test would not catch it, since it pins globals.css to its two imports but treats every class in base.css as global (`tests/unit/route-css.test.ts:66-67,205-208`).",
+      "**Don't** use emoji or an icon font; glyphs are monochrome text characters or runes in `currentColor`, and line icons are 12-unit SVGs with a 1.25 stroke.",
+      "**Don't** enlarge a picture past its natural size: `object-contain` alone does so in a box larger than the picture. Icons sit `scale-down` in fixed boxes, gallery pictures are capped at their natural size inside 4:3 boxes, and only a biome card's screenshot fills its 16:9 frame (`object-cover`)."
+    ]
+  }
+}

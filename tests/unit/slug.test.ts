@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { slugify } from '@/lib/wiki/slug';
+import { fold, slugify } from '@/lib/wiki/slug';
+
+describe('fold', () => {
+  it('drops accents and case, the same way for every caller', () => {
+    expect(fold('Jörmundling')).toBe('jormundling');
+    expect(fold('MONTAÑA')).toBe('montana');
+    // Decomposed input folds the same as composed.
+    expect(fold('montaña'.normalize('NFD'))).toBe('montana');
+  });
+
+  // The range is written as escapes in slug.ts; this fails if an editor ever
+  // turns it back into raw marks and then strips or normalises them.
+  it('strips every combining mark, from the first to the last', () => {
+    for (const code of [0x300, 0x301, 0x303, 0x308, 0x30a, 0x327, 0x36f]) {
+      expect(fold(`a${String.fromCharCode(code)}`)).toBe('a');
+    }
+    expect(fold(`a${String.fromCharCode(0x370)}`)).toBe(`a${String.fromCharCode(0x371)}`);
+  });
+
+  it('leaves letters that are not a base plus an accent', () => {
+    expect(fold('Blåbär ø æ')).toBe('blabar ø æ');
+  });
+});
 
 describe('slugify', () => {
   it('lowercases and hyphenates', () => {

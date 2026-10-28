@@ -1,4 +1,6 @@
 import type { MetadataRoute } from 'next';
+import { CRAFT_PLANNER_LIVE } from '@/lib/craft/feature';
+import { strings } from '@/lib/i18n/strings';
 
 /**
  * The install manifest.
@@ -11,16 +13,19 @@ import type { MetadataRoute } from 'next';
  * to change.
  *
  * `lang` is fixed to `es` rather than following the `en`/`es` toggle: a
- * manifest is generated once at build time, not per request, so it cannot
- * read the language cookie. Spanish is the app's default (`<html lang="es">`
- * in the root layout), which is what an installed icon's OS-level name
- * should match.
+ * manifest is generated once at build time, not per request, and browsers
+ * fetch it without cookies anyway, so it cannot know the reader's choice.
+ * Spanish is the app's default (what the root layout's `<html lang>` falls
+ * back to without a cookie), which is what an installed icon's OS-level name
+ * should match. Its words come from the same Spanish copy as the app's, so
+ * the two cannot drift apart.
  */
 export default function manifest(): MetadataRoute.Manifest {
+  const t = strings('es');
   return {
-    name: 'Valheim Codex',
+    name: t.appName,
     short_name: 'Codex',
-    description: 'Wiki de Valheim y asistente, para consultar a mitad de partida.',
+    description: t.shellAppDescription,
     start_url: '/wiki',
     id: '/wiki',
     scope: '/',
@@ -45,9 +50,10 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
     ],
     shortcuts: [
-      { name: 'Buscar', url: '/wiki', description: 'Buscar un objeto, criatura o bioma' },
-      { name: 'Guía 100%', url: '/wiki/guide', description: 'Checklist de finalización, bioma por bioma' },
-      { name: 'Explorar', url: '/wiki/browse', description: 'Biomas, categorías y estaciones' },
+      { name: t.wikiSearch, url: '/wiki', description: t.shellShortcutSearch },
+      ...(CRAFT_PLANNER_LIVE ? [{ name: t.shellCraft, url: '/wiki/craft', description: t.shellShortcutCraft }] : []),
+      { name: t.wikiGuideTitle, url: '/wiki/guide', description: t.shellShortcutGuide },
+      { name: t.wikiBrowse, url: '/wiki/browse', description: t.shellShortcutBrowse },
     ],
   };
 }

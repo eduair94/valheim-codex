@@ -1,4 +1,21 @@
+import { BROWSE_COPY } from './browse-copy';
+import { ARTICLE_COPY } from './copy/article';
+import { AUTH_COPY } from './copy/auth';
+import { CHAT_COPY } from './copy/chat';
+import { CRAFT_COPY } from './copy/craft';
+import { GUIDE_COPY } from './copy/guide';
+import { SEARCH_COPY } from './copy/search';
+import { SHELL_COPY } from './copy/shell';
+import { WIKI_COPY } from './copy/wiki';
+
 export type Lang = 'es' | 'en';
+
+/*
+ * Formatting helpers once defined here, for the Server Components that still
+ * import them from this module. Code that runs in the browser imports them
+ * from `./format`.
+ */
+export { relativeTime, rune } from './format';
 
 /**
  * UI copy, written from the reader's side of the screen.
@@ -7,8 +24,20 @@ export type Lang = 'es' | 'en';
  * flow, so the control that says "Actualizar índice" produces a message about
  * the index being updated. Errors say what happened and what to do next; they
  * do not apologise.
+ *
+ * This is the shared base table. Each area of the app keeps its own copy in
+ * `./copy/*`, merged over this one below, so an area can add or reword its
+ * strings without everyone editing one file.
+ *
+ * Server Components read it with `strings(lang)`. Nothing that runs in the
+ * browser may import a value from this module or from `./copy/*` (types are
+ * fine): the table is about 38 KB in both languages, and every client chunk
+ * that imported it carried a copy. Client Components read the language's
+ * table from `LangProvider` with `useStrings` (`components/shell/lang-context`),
+ * which the root layout fills once per page. `tests/unit/client-copy-guard.test.ts`
+ * enforces this.
  */
-export const STRINGS = {
+const BASE = {
   es: {
     appName: 'Valheim Codex',
     tagline: 'Respuestas de la wiki, con la fuente a la vista',
@@ -62,7 +91,9 @@ export const STRINGS = {
     loginSubtitle: 'Esta consulta es privada. Entrá con la contraseña.',
     loginPassword: 'Contraseña',
     loginProfile: 'Tu nombre',
-    loginProfileHint: 'Separa tu historial del de tus compañeros de partida.',
+    // The name only labels a history; anyone with the password can type it, so say so here.
+    loginProfileHint:
+      'Separa tu historial del de tus compañeros de partida. No es secreto: quien tenga la contraseña y escriba este nombre ve ese historial y puede borrarlo.',
     loginSubmit: 'Entrar',
     loginPending: 'Entrando…',
     loginBadCredentials: 'Contraseña incorrecta.',
@@ -94,25 +125,15 @@ export const STRINGS = {
     wikiHowToGet: 'ver de dónde se saca',
     wikiRecipe: 'Receta',
     wikiSourceLink: 'Ver en la wiki original',
-    wikiCategories: 'Categorías',
-    wikiBiomes: 'Biomas',
-    wikiBiomesHint: 'En el orden en que el juego te los va abriendo.',
-    wikiStations: 'Estaciones de crafteo',
-    wikiSeeAll: 'Ver todo',
+    // The browsing axes' names and the guide card's are in `./browse-copy`.
     wikiOrBrowse: 'O empezá por acá',
-    wikiArticles: 'artículos',
     wikiCompare: 'Comparar',
-    wikiItem: 'Objeto',
     wikiList: 'Lista',
     wikiAskAbout: 'Preguntar sobre esto',
     wikiBack: 'Volver',
     wikiOffline: 'Sin conexión. Estás viendo una copia guardada; el chat no está disponible.',
     wikiNotFound: 'Ese artículo no está en el índice.',
     wikiNothingHere: 'No hay artículos con ese filtro.',
-    wikiGuideTitle: 'Guía 100%',
-    wikiGuideTeaser: 'Los 7 jefes, bioma por bioma, con checklist.',
-    wikiGuideEnNotice: 'Esta guía todavía solo existe en español.',
-    wikiGuideEnBack: 'Volver a la wiki',
 
     installBanner: 'Instalá Codex de Valheim en tu pantalla de inicio: abre más rápido y funciona sin conexión.',
     installIosBanner: 'Instalá esta app: tocá Compartir y elegí «Agregar a inicio».',
@@ -171,7 +192,8 @@ export const STRINGS = {
     loginSubtitle: 'This codex is private. Enter the password.',
     loginPassword: 'Password',
     loginProfile: 'Your name',
-    loginProfileHint: 'Keeps your history separate from your crew’s.',
+    loginProfileHint:
+      'Keeps your history separate from your crew’s. It isn’t a secret: anyone with the password who types this name sees that history and can delete it.',
     loginSubmit: 'Enter',
     loginPending: 'Entering…',
     loginBadCredentials: 'Wrong password.',
@@ -203,25 +225,14 @@ export const STRINGS = {
     wikiHowToGet: 'see where to get it',
     wikiRecipe: 'Recipe',
     wikiSourceLink: 'View on the original wiki',
-    wikiCategories: 'Categories',
-    wikiBiomes: 'Biomes',
-    wikiBiomesHint: 'In the order the game opens them up to you.',
-    wikiStations: 'Crafting stations',
-    wikiSeeAll: 'See all',
     wikiOrBrowse: 'Or start here',
-    wikiArticles: 'articles',
     wikiCompare: 'Compare',
-    wikiItem: 'Item',
     wikiList: 'List',
     wikiAskAbout: 'Ask about this',
     wikiBack: 'Back',
     wikiOffline: 'Offline. You are seeing a saved copy; the chat is unavailable.',
     wikiNotFound: 'That article is not in the index.',
     wikiNothingHere: 'No articles match this filter.',
-    wikiGuideTitle: '100% Guide',
-    wikiGuideTeaser: 'All 7 bosses, biome by biome, with a checklist.',
-    wikiGuideEnNotice: 'This guide only exists in Spanish for now.',
-    wikiGuideEnBack: 'Back to the wiki',
 
     installBanner: 'Install Valheim Codex on your home screen: it opens faster and works offline.',
     installIosBanner: 'Install this app: tap Share and choose “Add to Home Screen”.',
@@ -230,50 +241,41 @@ export const STRINGS = {
   },
 } as const;
 
+export const STRINGS = {
+  es: {
+    ...BASE.es,
+    ...SHELL_COPY.es,
+    ...SEARCH_COPY.es,
+    ...WIKI_COPY.es,
+    ...BROWSE_COPY.es,
+    ...ARTICLE_COPY.es,
+    ...GUIDE_COPY.es,
+    ...CRAFT_COPY.es,
+    ...CHAT_COPY.es,
+    ...AUTH_COPY.es,
+  },
+  en: {
+    ...BASE.en,
+    ...SHELL_COPY.en,
+    ...SEARCH_COPY.en,
+    ...WIKI_COPY.en,
+    ...BROWSE_COPY.en,
+    ...ARTICLE_COPY.en,
+    ...GUIDE_COPY.en,
+    ...CRAFT_COPY.en,
+    ...CHAT_COPY.en,
+    ...AUTH_COPY.en,
+  },
+} as const;
+
+/**
+ * One language's table. Plain strings and lists of strings only: the root
+ * layout hands it to `LangProvider`, so it travels to the browser in the
+ * page's RSC payload, and anything that does not serialize would break that
+ * (`tests/unit/strings.test.ts` checks).
+ */
 export type Strings = (typeof STRINGS)[Lang];
 
 export function strings(lang: Lang): Strings {
   return STRINGS[lang];
-}
-
-/**
- * Elder Futhark ordinals for the source list.
- *
- * Valheim delivers its lore on runestones, and the sources are this app's
- * lore. The rune is decoration with a job: it marks source order at a glance
- * while the numeral stays present for anyone matching a marker in the text.
- */
-const FUTHARK = ['ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ', 'ᚺ', 'ᚾ', 'ᛁ', 'ᛃ'] as const;
-
-export function rune(n: number): string {
-  return FUTHARK[(n - 1) % FUTHARK.length] ?? 'ᚠ';
-}
-
-/** "hace 3 h" / "3 h ago" — short, and never a bare timestamp. */
-export function relativeTime(iso: string | null, lang: Lang): string {
-  if (!iso) return STRINGS[lang].never;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return STRINGS[lang].never;
-
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ['second', 60],
-    ['minute', 60],
-    ['hour', 24],
-    ['day', 30],
-    ['month', 12],
-    ['year', Number.POSITIVE_INFINITY],
-  ];
-
-  let value = seconds;
-  for (const [unit, step] of units) {
-    if (value < step) {
-      return new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style: 'short' }).format(
-        -Math.round(value),
-        unit,
-      );
-    }
-    value /= step;
-  }
-  return STRINGS[lang].never;
 }

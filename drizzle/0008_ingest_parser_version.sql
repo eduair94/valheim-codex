@@ -1,0 +1,14 @@
+-- Which version of the parser built each article.
+--
+-- The ingest re-derives a page when its revision changes on the wiki. A parser
+-- fix changes the derived rows without any page changing upstream, so before
+-- this column a fix reached only the pages that happened to be edited
+-- afterwards: the maths clean-up of August 2026 never reached the articles it
+-- was written for. Comparing this column with PARSER_VERSION
+-- (src/lib/ingest/version.ts) lets the next run re-derive exactly the pages an
+-- older parser built, and nothing else.
+--
+-- 0 means "built before versions were recorded", so every existing article is
+-- re-derived once. A constant default makes this a metadata-only change on
+-- Postgres 11 and later: no table rewrite.
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS parser_version integer NOT NULL DEFAULT 0;

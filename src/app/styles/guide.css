@@ -1,0 +1,778 @@
+/*
+  The 100% guide (/wiki/guide), whose page alone imports this file, with
+  tables.css for its tables' phone cards.
+
+  A reading page, eleven desktop screens and some twenty phone screens long,
+  that a reader checks off over weeks of play. Everything here serves three
+  things: prose held to a reading measure, a table of contents that is always
+  within reach, and three hundred item chips that cost as little as possible.
+
+  One short class per role (`g-*`) instead of utility strings: the chips and
+  checklist rows repeat hundreds of times, and every class name in their
+  markup is sent twice, in the HTML and in the payload React hydrates from.
+
+  All of it in `components`, so a utility on the same element still wins.
+  The phone cards of the tables are the exception by design: they come from
+  the shared, unlayered `.stack-*` rules in tables.css, which must outrank
+  the desktop table styles below — which is why those sit behind `sm`.
+
+  The `@reference` emits nothing: it gives each color-mix() below a fallback
+  in plain colour, for browsers without color-mix() (globals.css says more).
+*/
+@reference '../globals.css';
+
+@layer components {
+  /* ---------------------------------------------------------------- frame */
+
+  .g-page {
+    padding-bottom: 2.5rem;
+  }
+
+  /*
+    46rem of column, and inside it prose held to 68ch: tables and the boss
+    cards may use the full width, sentences may not. From `lg` the table of
+    contents takes a column of its own to the left.
+  */
+  .g-body {
+    min-width: 0;
+    max-width: 46rem;
+  }
+
+  @media (width >= 64rem) {
+    .g-page {
+      display: grid;
+      grid-template-columns: 13rem minmax(0, 46rem);
+      column-gap: 3rem;
+      align-items: start;
+    }
+    .g-toc-side {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .g-body {
+      grid-column: 2;
+      grid-row: 1;
+    }
+  }
+
+  /* Generous between the guide's parts, tight inside them. */
+  .g-body > * + * {
+    margin-top: 2.5rem;
+  }
+  @media (width >= 40rem) {
+    .g-body > * + * {
+      margin-top: 3rem;
+    }
+  }
+
+  .g-sec > * + *,
+  .g-chapter > * + * {
+    margin-top: 1rem;
+  }
+  .g-sec > h2 + *,
+  .g-biomes > h2 + * {
+    margin-top: 0.75rem;
+  }
+  /* More room above a subheading than below it, so it reads as the start of what follows. */
+  .g-sec > * + .g-h3 {
+    margin-top: 2rem;
+  }
+  .g-sec > h2 + .g-h3 {
+    margin-top: 1rem;
+  }
+  .g-sec > .g-h3 + *,
+  .g-chapter > .g-h4 + * {
+    margin-top: 0.5rem;
+  }
+  .g-chapter > * + .g-h4 {
+    margin-top: 1.5rem;
+  }
+  .g-chapter > .g-chapter-head + * {
+    margin-top: 0.5rem;
+  }
+
+  /*
+    Chapters off screen are not laid out until they near it: the page used to
+    lay out 2,300 boxes before its first paint, and skipping the seven
+    chapters measured about half a second off first paint on a mid phone.
+    `auto` remembers a chapter's real height once it has been drawn, so the
+    estimate only matters on the way down the first time — and on the way
+    Back from an article, when the page is built anew and the browser restores
+    the scroll position by pixel. `GuidePlace` (guide-place.tsx) keeps the
+    drawn heights in the history entry and gives them back first.
+
+    Only the height is estimated. A width estimate would be taken at its word
+    by anything that sizes to content — a grid track, a flex item — and one
+    skipped section would stretch the page to that width on a phone.
+
+    `content-visibility` also clips painting to the section's box, which would
+    cut the focus ring off a checkbox sitting at its left edge; the 4px of
+    padding, given back by the margin, is room for the ring.
+  */
+  .g-cv,
+  .g-chapter {
+    content-visibility: auto;
+    padding-inline: 0.25rem;
+    margin-inline: -0.25rem;
+  }
+  /* Estimates measured on the rendered page: a chapter is about 1,100px tall on a phone and 800px from `sm` up. */
+  .g-chapter {
+    contain-intrinsic-block-size: auto 70rem;
+  }
+  .g-cv {
+    contain-intrinsic-block-size: auto 85rem;
+  }
+  @media (width >= 40rem) {
+    .g-chapter {
+      contain-intrinsic-block-size: auto 50rem;
+    }
+    .g-cv {
+      contain-intrinsic-block-size: auto 45rem;
+    }
+  }
+
+  /* A hairline between chapters, drawn inside the ring padding so it lines up with the text. */
+  .g-biomes > .g-chapter + .g-chapter {
+    position: relative;
+    margin-top: 2rem;
+    padding-top: 2rem;
+  }
+  .g-biomes > .g-chapter + .g-chapter::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    inset-inline: 0.25rem;
+    border-top: 1px solid var(--color-moss);
+  }
+
+  /* --------------------------------------------------------------- header */
+
+  .g-head h1 {
+    margin-top: 0.5rem;
+    font-size: 1.5rem;
+    line-height: 1.15;
+    color: var(--color-birch);
+  }
+  @media (width >= 40rem) {
+    .g-head h1 {
+      font-size: 1.875rem;
+    }
+  }
+  .g-meta {
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--color-ash);
+  }
+  .g-head .g-lede {
+    margin-top: 1rem;
+    font-size: 1rem;
+  }
+
+  .g-before {
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    background: var(--color-peat);
+  }
+  .g-before > p + p {
+    max-width: 68ch;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: color-mix(in srgb, var(--color-birch) 88%, transparent);
+  }
+
+  /* ------------------------------------------------------------- headings */
+
+  .g-page h2.display {
+    font-size: 1.125rem;
+    line-height: 1.3;
+    color: var(--color-birch);
+    text-wrap: balance;
+  }
+  @media (width >= 40rem) {
+    .g-page h2.display {
+      font-size: 1.25rem;
+    }
+  }
+
+  /* Sentence case: these run to five or six words, too long for tracked caps. */
+  .g-h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--color-birch);
+    text-wrap: balance;
+  }
+
+  .g-h4 {
+    color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+  }
+
+  .g-chapter-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.75rem;
+    row-gap: 0.25rem;
+  }
+  .g-chapter-head h3 {
+    font-size: 1rem;
+    color: var(--color-birch);
+  }
+  @media (width >= 40rem) {
+    .g-chapter-head h3 {
+      font-size: 1.125rem;
+    }
+  }
+
+  /* The biome's rune: an ordinal that is also the game's own alphabet. */
+  .g-rune {
+    font-family: var(--font-mono);
+    color: color-mix(in srgb, var(--color-forge) 80%, transparent);
+  }
+
+  /* ---------------------------------------------------------------- prose */
+
+  .g-lede,
+  .g-intro,
+  .g-prose,
+  .g-steps,
+  .g-aside {
+    max-width: 68ch;
+    text-wrap: pretty;
+  }
+  .g-lede,
+  .g-intro,
+  .g-prose,
+  .g-steps {
+    font-size: 0.95rem;
+    line-height: 1.65;
+  }
+  .g-lede,
+  .g-intro {
+    color: var(--color-ash);
+  }
+  .g-prose,
+  .g-steps {
+    color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+  }
+  .g-aside {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--color-ash);
+  }
+
+  .g-page strong {
+    font-weight: 600;
+    color: var(--color-birch);
+  }
+
+  .g-steps > li {
+    position: relative;
+    padding-left: 1rem;
+  }
+  .g-steps > li + li {
+    margin-top: 0.5rem;
+  }
+  .g-steps > li::before {
+    content: '·';
+    position: absolute;
+    left: 0.125rem;
+    font-weight: 700;
+    color: var(--color-forge);
+  }
+
+  .g-link {
+    color: var(--color-forge);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-forge) 50%, transparent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+  }
+  .g-link:hover {
+    text-decoration-color: var(--color-forge);
+  }
+
+  /* ----------------------------------------------------------- item chips */
+
+  /*
+    A name stays in one piece, the way the game shows it: broken across two
+    lines, each half kept its own background, and "Bronze | Plate Cuirass"
+    read as two items. What once pushed a 360px page sideways was not a long
+    name but three of them joined by bare slashes into one unbreakable run;
+    those runs now have a space after each slash (`Staff of Embers / Staff of
+    Frost`), so the line breaks between names instead of inside one.
+
+    Inline, not inline-block, so a comma or a full stop after a chip never
+    starts a line of its own: a line may break on either side of an
+    inline-block, even right before a comma. At least 12px: inside the smaller
+    notes and tables 0.85em comes out at 11.
+  */
+  .g-item {
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--color-moss) 50%, transparent);
+    font-family: var(--font-mono);
+    font-size: max(0.85em, 0.75rem);
+    color: var(--color-forge);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  /*
+    Below 336px the value column of a table's phone card is narrower than its
+    longest names (Hildir's Silver Chest, Seeker Soldier Trophy), which would
+    run out of the card. There a chip becomes a box of its own: it moves to
+    the next line whole, and only a name wider than the whole column breaks,
+    inside its one background.
+  */
+  @media (width < 21rem) {
+    .g-table .g-item {
+      display: inline-block;
+      max-width: 100%;
+      white-space: normal;
+    }
+  }
+  a.g-item {
+    transition: background-color 150ms ease-out;
+  }
+  a.g-item:hover {
+    background: var(--color-moss);
+  }
+  /* The few names with no article here go to the original wiki, in a new tab; this says so. */
+  a.g-item[target]::after {
+    content: '↗';
+    content: '↗' / '';
+    margin-left: 0.125rem;
+    font-size: 0.85em;
+    color: var(--color-ash);
+  }
+
+  /* ----------------------------------------------------------- checklists */
+
+  .g-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 68ch;
+  }
+  .g-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding-block: 0.25rem;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--color-birch);
+    text-wrap: pretty;
+    cursor: pointer;
+  }
+  .g-check input {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.25rem;
+    accent-color: var(--color-forge);
+    cursor: pointer;
+  }
+  .g-note {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--color-ash);
+  }
+  /* The whole row is the target; on touch it is at least a thumb tall. */
+  @media (pointer: coarse) {
+    .g-check {
+      min-height: 2.75rem;
+      padding-block: 0.5rem;
+    }
+    .g-check input {
+      width: 1.25rem;
+      height: 1.25rem;
+      margin-top: 0.125rem;
+    }
+  }
+
+  /* ------------------------------------------------------------- callouts */
+
+  .g-callout {
+    max-width: 68ch;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    background: var(--color-peat);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--color-ash);
+    text-wrap: pretty;
+  }
+  .g-callout[data-tone='warn'] {
+    border-color: color-mix(in srgb, var(--color-blood) 40%, transparent);
+    background: color-mix(in srgb, var(--color-blood) 10%, transparent);
+    color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+  }
+
+  /* ------------------------------------------------------------ boss card */
+
+  .g-chapter > .g-card {
+    margin-top: 1.5rem;
+  }
+  .g-card {
+    max-width: 40rem;
+  }
+  .g-card > h4 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .g-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-birch);
+  }
+  /*
+    Not clipped to round its corners: its values hold item chips, which never
+    wrap, and a clipped card would cut one off rather than show it. The rows
+    at either end are rounded instead, as the stat list's are (tables.css).
+  */
+  .g-stats {
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+  }
+  .g-stats > div {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .g-stats > div:nth-child(odd) {
+    background: color-mix(in srgb, var(--color-peat) 40%, transparent);
+  }
+  .g-stats > div + div {
+    border-top: 1px solid color-mix(in srgb, var(--color-moss) 60%, transparent);
+  }
+  .g-stats > div:first-child {
+    border-top-left-radius: calc(0.375rem - 1px);
+    border-top-right-radius: calc(0.375rem - 1px);
+  }
+  .g-stats > div:last-child {
+    border-bottom-left-radius: calc(0.375rem - 1px);
+    border-bottom-right-radius: calc(0.375rem - 1px);
+  }
+  .g-stats dt {
+    color: var(--color-ash);
+  }
+  .g-stats dd {
+    color: var(--color-birch);
+    text-wrap: pretty;
+  }
+  @media (width >= 40rem) {
+    .g-stats > div {
+      grid-template-columns: 7rem minmax(0, 1fr);
+      column-gap: 1rem;
+    }
+  }
+
+  /* --------------------------------------------------------------- tables */
+
+  .g-table figcaption {
+    margin-bottom: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--color-ash);
+  }
+  /*
+    A row header is the card's title on a phone, and the browser centres a
+    `th` whenever its row has no alignment of its own — so it gets one.
+  */
+  .g-table th {
+    text-align: start;
+  }
+
+  /* Desktop only: below `sm` the shared `.stack-*` rules turn rows into cards. */
+  @media (width >= 40rem) {
+    .g-table .stack-scroller {
+      overflow-x: auto;
+      border: 1px solid var(--color-moss);
+      border-radius: 0.375rem;
+    }
+    .g-table table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.875rem;
+      line-height: 1.45;
+    }
+    .g-table th,
+    .g-table td {
+      padding: 0.5rem 0.75rem;
+      vertical-align: baseline;
+    }
+    .g-table thead th {
+      border-bottom: 1px solid var(--color-moss);
+      background: var(--color-peat);
+      font-family: var(--font-mono);
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      color: var(--color-ash);
+    }
+    .g-table tbody tr + tr > * {
+      border-top: 1px solid color-mix(in srgb, var(--color-moss) 50%, transparent);
+    }
+    .g-table tbody tr:nth-child(even) {
+      background: color-mix(in srgb, var(--color-peat) 35%, transparent);
+    }
+    .g-table tbody th {
+      font-weight: 500;
+      color: var(--color-birch);
+    }
+    .g-table tbody td {
+      color: color-mix(in srgb, var(--color-birch) 90%, transparent);
+      text-wrap: pretty;
+    }
+    .g-table .g-num {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    /* Names stay whole: the row's own name and short columns like a biome. */
+    .g-table tbody th,
+    .g-table .g-keep {
+      white-space: nowrap;
+    }
+    .g-table[data-compact] .stack-scroller {
+      width: fit-content;
+      max-width: 100%;
+    }
+    .g-table[data-compact] th:not(:first-child),
+    .g-table[data-compact] td {
+      padding-left: 2rem;
+    }
+  }
+
+  /* ------------------------------------------------- the last two sections */
+
+  .g-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2.5rem 2rem;
+  }
+  @media (width >= 40rem) {
+    .g-pair {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .g-next {
+    padding: 1rem;
+    border: 1px dashed var(--color-lichen);
+    border-radius: 0.375rem;
+    background: color-mix(in srgb, var(--color-peat) 60%, transparent);
+  }
+  .g-next > h2 + * {
+    margin-top: 0.5rem;
+  }
+  .g-next > .label + h2 {
+    margin-top: 0.25rem;
+  }
+
+  .g-sources {
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-moss);
+  }
+  .g-sources p {
+    max-width: 68ch;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--color-ash);
+  }
+
+  /* ---------------------------------------------------- table of contents */
+
+  .g-toc-list a {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--color-ash);
+    text-decoration: none;
+    transition: color 150ms ease-out;
+  }
+  .g-toc-list a:hover {
+    color: var(--color-birch);
+  }
+  .g-toc-list .g-toc-list a {
+    padding-left: 1.25rem;
+  }
+  .g-toc-list .g-rune {
+    flex: none;
+    width: 1rem;
+    font-size: 0.8125rem;
+  }
+  /* The chapter being read, and the part of the guide it belongs to. */
+  .g-toc-list a[aria-current] {
+    color: var(--color-forge);
+  }
+  .g-toc-list li:has(> ol a[aria-current]) > a {
+    color: var(--color-birch);
+  }
+
+  /* Desktop: a column of its own, sticky under the nav, scrolling by itself if a short window needs it. */
+  .g-toc-side {
+    display: none;
+  }
+  @media (width >= 64rem) {
+    .g-toc-side {
+      display: block;
+      position: sticky;
+      top: calc(var(--nav-h) + 1.5rem);
+      max-height: calc(100dvh - var(--nav-h) - 3rem);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      /* Room inside the scroller for focus rings, given back outside. */
+      margin: -0.25rem;
+      padding: 0.25rem;
+    }
+    .g-toc-side > .label {
+      margin-bottom: 0.75rem;
+    }
+    /* A hairline rail; the current entry is lit on it, at the same weight. */
+    .g-toc-side > .g-toc-list {
+      border-left: 1px solid var(--color-moss);
+    }
+    .g-toc-side a {
+      margin-left: -1px;
+      border-left: 1px solid transparent;
+    }
+    .g-toc-side a[aria-current] {
+      border-left-color: var(--color-forge);
+    }
+  }
+  /* A tablet held sideways is `lg` wide and still touched, not pointed at. */
+  @media (width >= 64rem) and (pointer: coarse) {
+    .g-toc-side a {
+      align-items: center;
+      min-height: 2.75rem;
+    }
+  }
+
+  /* Phone and tablet: a pill above the tab bar that opens the list as a sheet. */
+  .g-toc-pill {
+    position: fixed;
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: calc(var(--tabbar-h) + 1rem);
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding-inline: 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-forge) 40%, transparent);
+    border-radius: 999px;
+    background: var(--color-peat);
+    /* A short, close shadow: enough to lift it off the line of text passing underneath. */
+    box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.7);
+    font-size: 0.875rem;
+    color: var(--color-forge);
+    cursor: pointer;
+    transition:
+      transform 200ms ease-out,
+      opacity 200ms ease-out,
+      border-color 150ms ease-out;
+  }
+  .g-toc-pill:hover {
+    border-color: var(--color-forge);
+  }
+  .g-toc-pill[data-hidden] {
+    transform: translateY(1rem);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .g-toc-pill .g-rune {
+    color: var(--color-forge);
+  }
+
+  .g-toc-sheet {
+    position: fixed;
+    inset: auto max(0.75rem, env(safe-area-inset-right)) calc(var(--tabbar-h) + 4.25rem)
+      max(0.75rem, env(safe-area-inset-left));
+    width: auto;
+    max-width: 22rem;
+    /* Clear of the status bar of an installed app (`--nav-h` on a phone) as well as the tab bar. */
+    max-height: calc(100dvh - var(--nav-h) - var(--tabbar-h) - 6rem);
+    margin: 0 0 0 auto;
+    padding: 0.5rem 0.5rem 0.75rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    background: var(--color-peat);
+    color: var(--color-birch);
+  }
+  /* The dimmed page behind it is what sets the sheet apart; it needs no shadow of its own. */
+  .g-toc-sheet::backdrop {
+    background: rgb(20 23 15 / 0.6);
+  }
+  .g-toc-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 0.75rem;
+  }
+  .g-toc-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.375rem;
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--color-ash);
+    cursor: pointer;
+  }
+  .g-toc-close:hover {
+    color: var(--color-birch);
+  }
+  .g-toc-sheet .g-toc-list a {
+    align-items: center;
+    min-height: 2.75rem;
+    padding-block: 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.9375rem;
+  }
+  .g-toc-sheet .g-toc-list a[aria-current] {
+    background: color-mix(in srgb, var(--color-moss) 60%, transparent);
+  }
+
+  @media (width >= 64rem) {
+    .g-toc-pill,
+    .g-toc-sheet {
+      display: none;
+    }
+  }
+
+  /* A checklist is the kind of page that gets printed; on paper there is nothing to navigate. */
+  @media print {
+    .g-toc-side,
+    .g-toc-pill,
+    .g-toc-sheet {
+      display: none;
+    }
+    .g-page {
+      display: block;
+    }
+  }
+}

@@ -19,6 +19,15 @@ export type MediaWikiClientOptions = {
 
 type QueryParams = Record<string, string | number | undefined>;
 
+/** Where a redirect leads: a page, and the section of it the redirect names, if any. */
+export type RedirectTarget = { title: string; fragment: string | null };
+
+/** One hop as `action=query&redirects=1` lists it. */
+type RedirectHop = { from: string; to: string; tofragment?: string; tointerwiki?: string };
+
+/** Characters MediaWiki allows in no title. A `|` would also split one title into two in a request. */
+const NOT_IN_A_TITLE = /[#<>[\]|{}]/;
+
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -129,6 +138,7 @@ export class MediaWikiClient {
     });
 
     if (!body.parse) return null;
+    const maintenance = new Set((source.maintenanceCategories ?? []).map((c) => c.toLowerCase()));
     return {
       source: source.id,
       pageId: body.parse.pageid,
@@ -137,7 +147,8 @@ export class MediaWikiClient {
       revid: body.parse.revid,
       categories: (body.parse.categories ?? [])
         .filter((c) => !c.hidden)
-        .map((c) => c.category.replace(/_/g, ' ')),
+        .map((c) => c.category.replace(/_/g, ' '))
+        .filter((c) => !maintenance.has(c.toLowerCase())),
       html: body.parse.text,
     };
   }
@@ -166,6 +177,74 @@ export class MediaWikiClient {
       }
     }
     return out;
+  }
+
+  /**
+   * Where each of these titles leads, for those that are redirects, asking
+   * about 50 titles per request.
+   *
+   * Recipes link a material by whatever title its editor typed, and four in
+   * ten of those links are redirects. For a thing with no page of its own the
+   * redirect is the only record of where it is described: "Mead base: Poison
+   * resistance" is the "Mead base" tab of Poison Resistance Mead. The titles
+   * recipes link to, some five hundred, take about ten requests, where
+   * listing every redirect on the wiki with its target takes over thirty.
+   *
+   * Each answer is filed under the title as it was asked and as the wiki
+   * spells it, since MediaWiki capitalizes a title's first letter and reads
+   * underscores as spaces before it looks the title up. A title that is not a
+   * redirect is absent, and so is one whose redirects go round in a loop or
+   * on to another wiki. Titles are passed without their fragment; one holding
+   * a character no title can (`#`, `|`, brackets) is not asked about.
+   */
+  async fetchRedirects(source: WikiSource, titles: string[]): Promise<Map<string, RedirectTarget>> {
+    const asked = [...new Set(titles)].filter((title) => title.trim() !== '' && !NOT_IN_A_TITLE.test(title));
+    const out = new Map<string, RedirectTarget>();
+    for (let i = 0; i < asked.length; i += 50) {
+      const batch = asked.slice(i, i + 50);
+      const body = await this.request<{
+        query?: { normalized?: { from: string; to: string }[]; redirects?: RedirectHop[] };
+      }>(source, {
+        action: 'query',
+        titles: batch.join('|'),
+        redirects: 1,
+      });
+
+      const spelled = new Map((body.query?.normalized ?? []).map((n) => [n.from, n.to]));
+      const hops = new Map((body.query?.redirects ?? []).map((hop) => [hop.from, hop]));
+      for (const title of batch) {
+        const wikiTitle = spelled.get(title) ?? title;
+        const target = followRedirects(hops, wikiTitle);
+        if (!target) continue;
+        out.set(title, target);
+        out.set(wikiTitle, target);
+      }
+    }
+    return out;
+  }
+}
+
+/**
+ * Follows a title through the redirects one response listed, to the page at
+ * the end: the API resolves a redirect to a redirect, a slip the wiki's
+ * editors fix sooner or later, and lists every hop. A section named by an
+ * earlier hop carries over a later hop that names none, as a browser keeps a
+ * URL's fragment across HTTP redirects. Null when the title is no redirect,
+ * or its redirects loop or lead off the wiki, where no page here is the end.
+ */
+function followRedirects(hops: ReadonlyMap<string, RedirectHop>, title: string): RedirectTarget | null {
+  let hop = hops.get(title);
+  if (!hop) return null;
+  const seen = new Set([title]);
+  let fragment: string | null = null;
+  for (;;) {
+    if (hop.tointerwiki) return null;
+    fragment = hop.tofragment || fragment;
+    const next = hops.get(hop.to);
+    if (!next) return { title: hop.to, fragment };
+    if (seen.has(hop.to)) return null;
+    seen.add(hop.to);
+    hop = next;
   }
 }
 

@@ -120,6 +120,11 @@ export const messages = pgTable(
     role: text('role').$type<'user' | 'assistant'>().notNull(),
     parts: jsonb('parts').$type<unknown[]>().notNull(),
     citations: jsonb('citations').$type<Citation[]>().notNull().default([]),
+    /**
+     * How an answer ended; question rows read 'complete'. A stopped or failed
+     * answer keeps the text the reader saw. See drizzle/0006.
+     */
+    outcome: text('outcome').$type<'complete' | 'stopped' | 'error'>().notNull().default('complete'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('messages_conversation_idx').on(t.conversationId, t.createdAt)],
@@ -149,6 +154,20 @@ export const loginAttempts = pgTable(
     count: integer('count').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.ip, t.windowStart] })],
+);
+
+/**
+ * Fixed-window counters for chat, guest sign-in and translation quotas.
+ * `key` carries the bucket name and window length; see drizzle/0005.
+ */
+export const rateLimits = pgTable(
+  'rate_limits',
+  {
+    key: text('key').notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    count: integer('count').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] }), index('rate_limits_window_idx').on(t.windowStart)],
 );
 
 /** Advisory lock rows: prevents two ingests running against one database. */
@@ -182,6 +201,12 @@ export const articles = pgTable(
     infobox: jsonb('infobox').$type<unknown>(),
     images: jsonb('images').$type<unknown[]>().notNull().default([]),
     facets: jsonb('facets').$type<Record<string, string>>().notNull().default({}),
+    /**
+     * `PARSER_VERSION` (src/lib/ingest/version.ts) of the parser that built
+     * this row; 0 for rows from before it was recorded. `pnpm ingest --reparse`
+     * rebuilds rows an older parser made. See drizzle/0008.
+     */
+    parserVersion: integer('parser_version').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('articles_slug_idx').on(t.slug)],
@@ -212,11 +237,79 @@ export const articleTranslations = pgTable(
     lead: text('lead').notNull().default(''),
     blocks: jsonb('blocks').$type<unknown[]>().notNull().default([]),
     infobox: jsonb('infobox').$type<unknown>(),
+    /** Translated image captions keyed by image URL; null when none were translated. See drizzle/0009. */
+    captions: jsonb('captions').$type<Record<string, string>>(),
     model: text('model').notNull(),
     sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.pageKey, t.lang] }), index('article_translations_lang_idx').on(t.lang)],
+);
+
+/**
+ * Translation progress per article and language, keyed by English string, so
+ * work survives a failed batch and a re-index. `pending` counts strings still
+ * untranslated; the lease gives one writer at a time. See drizzle/0009.
+ */
+export const articleTranslationMemory = pgTable(
+  'article_translation_memory',
+  {
+    pageKey: text('page_key')
+      .notNull()
+      .references(() => pages.key, { onDelete: 'cascade' }),
+    lang: text('lang').notNull(),
+    entries: jsonb('entries').$type<Record<string, string>>().notNull().default({}),
+    failures: jsonb('failures').$type<Record<string, number>>().notNull().default({}),
+    pending: integer('pending').notNull().default(0),
+    leaseHolder: text('lease_holder'),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.pageKey, t.lang] })],
+);
+
+/**
+ * What the recipe extractor read from one page (`PageRecipes`,
+ * src/lib/wiki/recipes.ts): every infobox's recipe per level, with the links
+ * that say which item each material is. Kept apart from `articles` because an
+ * article is a document to read and has already let go of the links, the
+ * yields and every infobox after the first; the graph is assembled from these
+ * rows instead. See drizzle/0010.
+ */
+export const pageRecipes = pgTable('page_recipes', {
+  pageKey: text('page_key')
+    .primaryKey()
+    .references(() => pages.key, { onDelete: 'cascade' }),
+  /** `RECIPES_VERSION` of the extractor that read the page; a newer one reads it again. */
+  recipesVersion: integer('recipes_version').notNull(),
+  /** The page revision the recipes were read from. */
+  revid: integer('revid').notNull(),
+  data: jsonb('data').$type<unknown>().notNull(),
+  /** When the page's recipes last changed, not when they were last written. */
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Recipe graphs the ingest assembled (`RecipeGraph`, src/lib/craft/types.ts),
+ * each with its report, keyed by a hash of the graph's content. The newest of
+ * a shape is served and the two before it are kept to fall back on. See
+ * drizzle/0010.
+ */
+export const recipeGraph = pgTable(
+  'recipe_graph',
+  {
+    version: text('version').primaryKey(),
+    builtAt: timestamp('built_at', { withTimezone: true }).notNull().defaultNow(),
+    /** `RECIPES_VERSION` of the extractor that read the pages it was assembled from. */
+    recipesVersion: integer('recipes_version').notNull(),
+    /** The graph's `v`: a server serves only graphs of the shape it reads. */
+    shape: integer('shape').notNull(),
+    /** A fingerprint of page_recipes as the assembly found it; see `isRecipeGraphBehind`. */
+    basis: text('basis').notNull(),
+    graph: jsonb('graph').$type<unknown>().notNull(),
+    report: jsonb('report').$type<unknown>().notNull(),
+  },
+  (t) => [index('recipe_graph_built_idx').on(t.builtAt.desc())],
 );
 
 /**
@@ -239,9 +332,13 @@ export const schema = {
   messages,
   ingestRuns,
   loginAttempts,
+  rateLimits,
   locks,
   settings,
   articles,
+  articleTranslationMemory,
+  pageRecipes,
+  recipeGraph,
 };
 
 /** Kept so `sql` stays imported for downstream raw-SQL helpers in this module. */

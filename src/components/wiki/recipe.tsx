@@ -1,12 +1,12 @@
-'use client';
-
 import Link from 'next/link';
-import type { Route } from 'next';
 import { articleHref } from '@/lib/routes';
 import { ingredientKey, parseRecipe } from '@/lib/wiki/recipe';
 import type { IngredientTarget } from '@/lib/db/wiki-repo';
-import { thumbnailImageUrl } from '@/lib/wiki/image-url';
+import { FANDOM_IMG_PROPS, thumbnailImageUrl } from '@/lib/wiki/image-url';
 import { strings, type Lang } from '@/lib/i18n/strings';
+
+/** The icon's drawn size, in CSS pixels. */
+const ICON_PX = 32;
 
 /**
  * A crafting recipe as the things it needs, not as a sentence about them.
@@ -25,12 +25,18 @@ import { strings, type Lang } from '@/lib/i18n/strings';
  * A material with no article of its own — cooked food, mead bases, trophies —
  * still gets a tile, without a link or a picture. Roughly one in ten are like
  * that, and dropping them would make the recipe wrong.
+ *
+ * Columns follow the space the recipe is given rather than the screen: two in
+ * a phone's column or the desktop infobox, three or four across a tablet. The
+ * tiles of a row share its height, so a name that wraps to two lines does not
+ * leave its neighbour short (LM-18).
  */
 export function Recipe({
   value,
   sourceValue,
   targets,
   lang,
+  uiLang,
 }: {
   value: string;
   /**
@@ -43,6 +49,13 @@ export function Recipe({
   /** Keyed by `ingredientKey`; resolved on the server in one query. */
   targets: Record<string, IngredientTarget>;
   lang: Lang;
+  /**
+   * Set when the article is in another language than the interface. The tile
+   * then names its material in the article's language and has no tooltip:
+   * the tooltip's hint is interface copy, which an attribute cannot mark as
+   * another language, and its name would only repeat the tile's.
+   */
+  uiLang?: Lang;
 }) {
   const t = strings(lang);
   const ingredients = parseRecipe(value);
@@ -58,31 +71,32 @@ export function Recipe({
 
   // Nothing parsed: show what the wiki said rather than an empty box.
   if (ingredients.length === 0) {
-    return <p className="text-[0.85rem] leading-snug text-birch">{value}</p>;
+    return <p className="text-sm leading-snug whitespace-pre-line text-birch">{value}</p>;
   }
 
   return (
-    <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <ul className="grid grid-cols-2 gap-2 @md:grid-cols-3 @2xl:grid-cols-4">
       {ingredients.map((ingredient, i) => {
         const target = targets[ingredientKey(keyFor(i, ingredient.lookup))];
 
         const inner = (
           <>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-bog/60">
+            <span className="recipe-icon">
               {target?.icon ? (
-                /* Hotlinked from Fandom's CDN, like every other image here. */
-                /* eslint-disable-next-line @next/next/no-img-element */
+                // Hotlinked from Fandom's CDN, like every other image here. An
+                // icon that fails to load shows nothing: its alt is empty.
+                // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={thumbnailImageUrl(target.icon, 32)}
+                  {...FANDOM_IMG_PROPS}
+                  src={thumbnailImageUrl(target.icon, ICON_PX)}
                   alt=""
+                  width={ICON_PX}
+                  height={ICON_PX}
                   loading="lazy"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                  className="h-8 w-8 object-contain"
+                  className="size-8 object-contain"
                 />
               ) : (
-                <span aria-hidden="true" className="text-sm text-lichen">
+                <span aria-hidden="true" className="text-lichen">
                   ◆
                 </span>
               )}
@@ -95,30 +109,25 @@ export function Recipe({
                * "Kit de peluquería" — and a tile that says "Clavos de bron…"
                * has spent its space telling the reader nothing.
                */}
-              <span className="block text-[0.8rem] leading-tight text-balance text-birch">
-                {ingredient.display}
-              </span>
-              <span className="block font-mono text-[0.8rem] leading-tight font-semibold text-forge">
-                ×{ingredient.quantity}
-              </span>
+              <span className="recipe-name">{ingredient.display}</span>
+              <span className="recipe-qty">×{ingredient.quantity}</span>
             </span>
           </>
         );
-
-        const shared = 'flex items-center gap-2 rounded-md border p-2';
 
         return (
           <li key={`${ingredient.lookup}-${i}`}>
             {target ? (
               <Link
-                href={articleHref(target.slug) as Route}
-                title={`${target.title} — ${t.wikiHowToGet}`}
-                className={`${shared} border-moss bg-peat/40 transition-colors hover:border-forge/60 hover:bg-peat`}
+                href={articleHref(target.slug)}
+                prefetch={false}
+                title={uiLang ? undefined : `${target.title} — ${t.wikiHowToGet}`}
+                className="recipe-tile recipe-tile-link"
               >
                 {inner}
               </Link>
             ) : (
-              <span className={`${shared} border-moss/60 bg-peat/20`}>{inner}</span>
+              <span className="recipe-tile">{inner}</span>
             )}
           </li>
         );

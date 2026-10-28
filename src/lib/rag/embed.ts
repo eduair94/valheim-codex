@@ -1,5 +1,6 @@
 import { embed, embedMany } from 'ai';
 import type { GoogleEmbeddingModelOptions } from '@ai-sdk/google';
+import { clampText } from '@/lib/chat-server/text';
 import { gemini } from './gemini';
 import type { EmbeddingProvider, EmbeddingProviderId } from './embed-types';
 import { EMBEDDING_DIMENSIONS, normalise, toVectorLiteral } from './embed-types';
@@ -8,6 +9,21 @@ export { EMBEDDING_DIMENSIONS, normalise, toVectorLiteral };
 export type { EmbeddingProvider, EmbeddingProviderId };
 
 export const EMBEDDING_MODEL = 'gemini-embedding-001';
+
+/**
+ * Longest query text handed to an embedding model, in UTF-16 code units.
+ *
+ * Both models read a few hundred tokens at most, so nothing past this changes
+ * a vector. The cap exists for the local model's tokenizer, which scans the
+ * whole input before truncating, synchronously, on the server's only thread:
+ * 32 KB of text without spaces took 11 seconds and froze every other request,
+ * public wiki pages included.
+ */
+export const MAX_QUERY_CHARS = 2000;
+
+function capQuery(text: string): string {
+  return clampText(text, MAX_QUERY_CHARS);
+}
 
 /** Texts per `embedMany` call. The provider batches up to 100 per HTTP request. */
 const BATCH_SIZE = 64;
@@ -24,7 +40,7 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 3;
 
 function model() {
-  return gemini().textEmbeddingModel(EMBEDDING_MODEL);
+  return gemini().embeddingModel(EMBEDDING_MODEL);
 }
 
 function providerOptions(taskType: GoogleEmbeddingModelOptions['taskType']) {
@@ -72,7 +88,7 @@ export const geminiEmbeddingProvider: EmbeddingProvider = {
   async embedQuery(text) {
     const { embedding } = await embed({
       model: model(),
-      value: text,
+      value: capQuery(text),
       // A query embedding sits in the request path, so it gets a tighter
       // budget than an ingest batch: better a failed search than a hung page.
       abortSignal: AbortSignal.timeout(20_000),
@@ -134,5 +150,27 @@ export function embedDocuments(texts: string[]): Promise<number[][]> {
 
 /** Embeds one query with the configured provider. */
 export function embedQuery(text: string): Promise<number[]> {
-  return getEmbeddingProvider().embedQuery(text);
+  return getEmbeddingProvider().embedQuery(capQuery(text));
+}
+
+/**
+ * Embeds several queries — a question and its rewrites — in one go: one
+ * forward pass on the local model, one request to Gemini, instead of one per
+ * query in a row.
+ */
+export async function embedQueries(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  const capped = texts.map(capQuery);
+  const provider = getEmbeddingProvider();
+
+  if (provider.id === 'local') return (await import('./embed-local')).embedQueriesLocally(capped);
+
+  const { embeddings } = await embedMany({
+    model: model(),
+    values: capped,
+    abortSignal: AbortSignal.timeout(20_000),
+    maxRetries: 2,
+    providerOptions: providerOptions('RETRIEVAL_QUERY'),
+  });
+  return embeddings.map(normalise);
 }

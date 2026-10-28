@@ -23,6 +23,7 @@ const scrypt = promisify(scryptCb);
 const PARAMS = { N: 1 << 16, r: 8, p: 1, maxmem: 128 * 1024 * 1024 };
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
+// Kept in step with MIN_PASSWORD_LENGTH in src/lib/auth/password.ts.
 const MIN_PASSWORD = 12;
 
 const password = process.argv[2];
@@ -71,4 +72,5 @@ writeFileSync(envPath, `${kept}\nAPP_PASSWORD_HASH=${hash}\nSESSION_SECRET=${ses
 console.log(`Wrote APP_PASSWORD_HASH and SESSION_SECRET to ${envPath}. Neither was printed.`);
 console.log("Recreate the app for them to take effect: `docker compose up -d`.");
 console.log("`docker compose restart` will NOT pick them up — env_file is read at create time.");
-console.log("Rotating SESSION_SECRET signs everyone out.");
+console.log("Rotating SESSION_SECRET signs everyone out, Puter readers included. Without BYOK_SECRET, readers on");
+console.log("their own Gemini key are signed out too, and start an empty history: the old one cannot be found again.");

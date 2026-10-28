@@ -1,0 +1,129 @@
+/*
+  Compare view (category pages, ?view=compare): one item per row, one stat
+  per column — Weapons is 138 rows by 12 columns. Imported by the category
+  page (app/wiki/c/[category]/page.tsx) only.
+
+  The table scrolls inside its own box, both ways, and the box is never
+  taller than the screen between the nav and the tab bar. It used to be as
+  tall as all its rows: its horizontal scrollbar sat five screens below the
+  fold, so a mouse could not reach the hidden columns at all, and the header
+  row scrolled away with the first rows. Now the header row and the name
+  column stay pinned while the rest moves under them, and both scrollbars are
+  on screen whenever the box is.
+
+  The cells' type is set in the component (compare-view.tsx); this is the
+  box, the pinning and the stripes.
+
+  The `@reference` emits nothing: it gives each color-mix() below a fallback
+  in plain colour, for browsers without color-mix() (globals.css says more).
+*/
+@reference '../globals.css';
+
+@layer components {
+  /*
+    Wider than the page's column where the screen allows. From 72rem the
+    shell's box leaves room at either side; the table takes the right-hand
+    side's, up to the gutter, so a 1440px screen shows about twice the
+    columns. Only the right: the names stay on the page's left edge, under the
+    title they belong to. Narrower screens have no side to take, and on a
+    notched phone held sideways that padding is the notch's.
+  */
+  @media (width >= 72rem) {
+    .compare-frame {
+      margin-right: min(0px, calc((100% + 2 * var(--gutter) - 100vw) / 2));
+    }
+  }
+
+  /*
+    As wide as the table, up to the room there is, so a set with three stats
+    is not a page-wide box of empty cells.
+  */
+  .compare-scroller {
+    /*
+      The containing block of every absolutely positioned cell content, such
+      as the screen-reader text of an empty cell. Without it those were laid
+      out against the page and widened it by a thousand pixels.
+    */
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    max-height: calc(100dvh - var(--nav-h) - var(--tabbar-h) - 1rem);
+    overflow: auto;
+    /* A sideways swipe at the table's edge must not become Back. */
+    overscroll-behavior-x: contain;
+    border: 1px solid var(--color-moss);
+    border-radius: 0.375rem;
+    background: var(--color-bog);
+  }
+
+  /*
+    `separate`, not `collapse`: a collapsed border belongs to the table rather
+    than the cell, and stays behind when the cell is pinned.
+  */
+  .compare-table {
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .compare-table th,
+  .compare-table td {
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .compare-table td {
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* A name cell's padding is its link's, so the whole cell is the target. */
+  .compare-table tbody th {
+    padding: 0;
+  }
+
+  /* The header row, pinned to the top of the box. Its buttons carry the padding. */
+  .compare-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 0;
+    vertical-align: bottom;
+    background: var(--color-peat);
+    border-bottom: 1px solid var(--color-moss);
+  }
+
+  /* The name column, pinned to the left; its header cell is pinned both ways. */
+  .compare-table tbody th {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  .compare-table thead th:first-child {
+    left: 0;
+    z-index: 3;
+  }
+
+  /* The pinned column's edge, which stays with it as the stats scroll under. */
+  .compare-table tr > :first-child {
+    box-shadow: inset -1px 0 0 var(--color-moss);
+  }
+
+  /*
+    Stripes in solid colours: a pinned name cell has to paint exactly the
+    stripe of its row, and a translucent one let the columns scrolling under
+    it show through the name.
+  */
+  .compare-table tbody tr > * {
+    background: var(--color-bog);
+  }
+  .compare-table tbody tr:nth-child(even) > * {
+    background: color-mix(in srgb, var(--color-peat) 70%, var(--color-bog));
+  }
+
+  /* The row under the pointer, so a wide row can be followed across. */
+  @media (hover: hover) {
+    .compare-table tbody tr:hover > * {
+      background: color-mix(in srgb, var(--color-moss) 60%, var(--color-bog));
+    }
+  }
+}

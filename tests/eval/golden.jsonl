@@ -28,3 +28,14 @@
 {"q": "How do I cure poison?", "lang": "en", "expect": ["Poison resistance mead", "Poison", "Mead"]}
 {"q": "¿Qué hace el trofeo de Moder?", "lang": "es", "expect": ["Moder"]}
 {"q": "What can I build with core wood?", "lang": "en", "expect": ["Corewood"]}
+{"q": "¿Qué puedo hacer con el estaño y el bronce?", "lang": "es", "expect": ["Tin", "Bronze"]}
+{"q": "Was kann ich mit Zinn und Bronze herstellen?", "lang": "de", "expect": ["Tin", "Bronze"]}
+{"q": "¿Para qué sirve la resina?", "lang": "es", "expect": ["Resin"]}
+{"q": "What is chitin used for?", "lang": "en", "expect": ["Chitin"]}
+{"q": "¿Para qué sirve el cuero de trol?", "lang": "es", "expect": ["Troll Hide"]}
+{"q": "What can I make with deer hide?", "lang": "en", "expect": ["Deer Hide"]}
+{"q": "¿Qué puedo construir con madera fina?", "lang": "es", "expect": ["Finewood"]}
+{"q": "What is fine wood used for?", "lang": "en", "expect": ["Finewood"]}
+{"q": "¿Qué hago con los núcleos de surtling?", "lang": "es", "expect": ["Surtling Core"]}
+{"q": "O que posso fazer com ferro?", "lang": "pt", "expect": ["Iron"]}
+{"q": "¿Dónde encuentro estaño?", "lang": "es", "expect": ["Tin Ore", "Tin", "Tin Deposit"]}

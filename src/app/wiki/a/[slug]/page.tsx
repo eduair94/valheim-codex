@@ -1,125 +1,131 @@
 import { notFound } from 'next/navigation';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import type { Metadata } from 'next';
 import { ArticleView } from '@/components/wiki/article-view';
-import { AskButton } from '@/components/wiki/ask-button';
-import { TranslateOnView } from '@/components/wiki/translate-on-view';
-import { getDb } from '@/lib/db/client';
-import { getArticleBySlug, getIngredientTargets, getTranslation } from '@/lib/db/wiki-repo';
-import { cachedLinkIndex } from '@/lib/db/link-index';
-import { collectArticleLinks } from '@/lib/wiki/links';
-import { pairRecipeSources, recipeLookups } from '@/lib/wiki/recipe';
+import { articleTitle, askTitle, clipText } from '@/components/wiki/article/article-meta';
+import type { AskTarget } from '@/components/wiki/article/ask-link';
+import { isAutomatedReader } from '@/components/wiki/article/crawler';
+import { loginHref } from '@/lib/auth/access';
+import { getChatPrincipal } from '@/lib/auth/principal-server';
+import { getArticlePage, type ArticlePage } from '@/lib/wiki/data';
+import { canRequestTranslation } from '@/lib/wiki/translate-policy';
+import { articleHref, chatAboutHref } from '@/lib/routes';
 import { LANG_COOKIE, parseLang } from '@/lib/i18n/lang-cookie';
-import { strings } from '@/lib/i18n/strings';
+import { strings, type Lang } from '@/lib/i18n/strings';
+import { siteOpenGraph } from '@/lib/site';
+// The article's own styles: its text, tables and infobox. The shell's are in globals.css.
+import '@/app/styles/prose.css';
+import '@/app/styles/tables.css';
 
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ slug: string }> };
 
+/** A link preview's description: about what fits in a search result. */
+const DESCRIPTION_LENGTH = 160;
+
+/** The card `opengraph-image.tsx` draws. */
+const OG_SIZE = { width: 1200, height: 630 };
+
+async function readLang(): Promise<Lang> {
+  return parseLang((await cookies()).get(LANG_COOKIE)?.value);
+}
+
+/**
+ * The tab title, the description and the link preview, in the reader's
+ * language and pointing at this article.
+ *
+ * Link-preview crawlers send no language cookie, so they read the Spanish
+ * default; a reader's own tab and history follow their choice (I18N-09). The
+ * title is the one the page shows (`articleTitle`): an untranslated article
+ * goes by its Spanish name there too, glossed like a translated one. The
+ * shared site fields (type, name, locale) are the layout's; `openGraph` is
+ * replaced as a whole by a page that sets it, so they come from the same
+ * `siteOpenGraph`. `getArticlePage` is shared with the page through React
+ * `cache()`: one load per request for both.
+ *
+ * The preview image is the route's own card (`opengraph-image.tsx`), named
+ * here so that its alternative text can say which article it is the card of.
+ * A file route can only state one alt for every article; naming the card
+ * per article from the file instead (`generateImageMetadata`) moved it to a
+ * new address, and every preview already shared would have lost its picture.
+ * Set here, the file's own image is not added a second time, and the Twitter
+ * card takes the same one.
+ */
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { slug } = await params;
-  const article = await getArticleBySlug(await getDb(), slug);
-  if (!article) return { title: 'Valheim Codex' };
+  const [{ slug }, lang] = await Promise.all([params, readLang()]);
+  const t = strings(lang);
+  const page = await getArticlePage(slug, lang);
+  if (!page) return { title: `${t.shellNotFoundTitle} — ${t.appName}` };
+
+  const path = articleHref(page.article.slug);
+  const title = articleTitle(page, lang);
+  const description = clipText(describe(page) || t.articleMetaDescription.replace('{title}', title), DESCRIPTION_LENGTH);
   return {
-    title: `${article.title} — Valheim Codex`,
-    description: article.doc.lead.slice(0, 160) || undefined,
+    title: `${title} — ${t.appName}`,
+    description,
+    alternates: { canonical: path },
+    openGraph: {
+      ...siteOpenGraph('article', lang),
+      url: path,
+      title,
+      description,
+      images: [
+        {
+          url: `${path}/opengraph-image`,
+          width: OG_SIZE.width,
+          height: OG_SIZE.height,
+          type: 'image/png',
+          alt: `${title} — ${t.appName}`,
+        },
+      ],
+    },
   };
 }
 
-export default async function ArticlePage({ params }: Params) {
-  const { slug } = await params;
-  const db = await getDb();
-  const article = await getArticleBySlug(db, slug);
-  if (!article) notFound();
+/** The lead, or for the few articles without one, their first paragraph of prose. */
+function describe(page: ArticlePage): string {
+  if (page.doc.lead.trim()) return page.doc.lead;
+  const first = page.doc.blocks.find((block) => block.kind === 'paragraph' && !block.notice);
+  return first?.kind === 'paragraph' ? first.text : '';
+}
 
-  const lang = parseLang((await cookies()).get(LANG_COOKIE)?.value);
+export default async function ArticleRoutePage({ params }: Params) {
+  const [{ slug }, lang] = await Promise.all([params, readLang()]);
+
+  /*
+   * One cached load: the article, its translation, the recipe's materials and
+   * the names it links (see `getArticlePage`). The route's layout made this
+   * same call before anything was sent, and sent unknown and misspelled
+   * addresses away; here it is answered from React's per-request cache.
+   */
+  const page = await getArticlePage(slug, lang);
+  if (!page) notFound();
+
+  // A broken cookie must never take the article down with it: it reads as
+  // signed out, which only changes where "ask about this" leads.
+  const [principal, requestHeaders] = await Promise.all([getChatPrincipal().catch(() => null), headers()]);
   const t = strings(lang);
 
   /*
-   * The translation is resolved here rather than fetched by the browser, so a
-   * Spanish reader gets Spanish in the first response — no flash of English,
-   * and it works with JavaScript off. The client component below only exists
-   * to create a translation that does not exist yet.
-   *
-   * English is the source language and needs no lookup.
+   * Asking needs a chat sign-in; reading does not. A signed-out reader is
+   * sent to the sign-in page with the question kept, rather than to `/`,
+   * which bounced them to the wiki home and dropped it (BC-03). The question
+   * names the article as the reader sees it, with the English name the wiki
+   * uses alongside.
    */
-  const translation = lang === 'es' ? await getTranslation(db, article.pageKey, lang) : null;
-
-  const title = translation?.title ?? article.title;
-  const doc = translation
-    ? {
-        ...article.doc,
-        lead: translation.doc.lead,
-        blocks: translation.doc.blocks,
-        infobox: translation.doc.infobox,
-      }
-    : article.doc;
+  const about = chatAboutHref(askTitle(articleTitle(page, lang), page.article.title));
+  const ask: AskTarget = principal
+    ? { href: about, locked: false, lockedNote: t.shellChatNeedsSignIn }
+    : { href: loginHref(about), locked: true, lockedNote: t.shellChatNeedsSignIn };
 
   /*
-   * Recipe ingredients are resolved here, in one query for the whole article,
-   * so the reader gets a picture and a link for each material instead of a
-   * list of names. Doing it in the component would mean a round trip per
-   * ingredient, to a metered database, to render one infobox row.
+   * A translation is asked for by the page itself, once it is on screen, on
+   * an allowance readers share: not for a reader whose allowance is switched
+   * off, and not for a crawler, which would spend everyone's on articles it
+   * reads in English just as well.
    */
-  const flatten = (box: typeof article.doc.infobox) =>
-    box ? [...box.common, ...box.tabs.flatMap((t) => t.groups)] : [];
+  const canTranslate = canRequestTranslation(principal) && !isAutomatedReader(requestHeaders.get('user-agent'));
 
-  const groups = flatten(doc.infobox);
-  const sourceGroups = flatten(article.doc.infobox);
-
-  // Names come from the English article, always: a translation that dropped a
-  // gloss should cost a parenthetical, not the icon and the link.
-  const [found, index] = await Promise.all([
-    getIngredientTargets(db, recipeLookups(sourceGroups)),
-    cachedLinkIndex(db, lang),
-  ]);
-  const ingredientTargets = Object.fromEntries(found);
-  const recipeSources = translation ? pairRecipeSources(groups, sourceGroups) : {};
-
-  /*
-   * Every other article this one names, so the names become links. Resolved
-   * here against the whole title list; the page carries only the handful of
-   * matches, and the component does the linking from those.
-   */
-  const links = collectArticleLinks({ doc, source: article.doc, index, selfSlug: article.slug });
-
-  return (
-    <>
-      <ArticleView
-        title={title}
-        slug={article.slug}
-        url={article.url}
-        categories={article.categories}
-        doc={doc}
-        lang={lang}
-        ingredientTargets={ingredientTargets}
-        recipeSources={recipeSources}
-        links={links}
-      />
-
-      {/*
-       * Said plainly rather than hidden. This text was translated by a model
-       * from an English wiki, and a reader deciding whether to trust a
-       * crafting cost deserves to know that before they mine the iron.
-       */}
-      {translation ? (
-        <p className="mt-4 text-[0.8rem] text-ash">
-          {t.wikiTranslated}
-          {translation.stale ? ` · ${t.wikiTranslationStale}` : ''}
-        </p>
-      ) : null}
-
-      {lang === 'es' && !translation ? <TranslateOnView slug={slug} lang={lang} /> : null}
-
-      {/*
-       * Clears the floating ask button, which is fixed and would otherwise
-       * cover the last rows of the infobox for good. It hides while scrolling
-       * down, so the overlap is only visible once the reader stops — which is
-       * exactly when they are trying to read what is under it.
-       */}
-      <div aria-hidden="true" className="h-28 sm:h-16" />
-
-      <AskButton title={article.title} lang={lang} />
-    </>
-  );
+  return <ArticleView page={page} lang={lang} ask={ask} canTranslate={canTranslate} />;
 }

@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { strings, type Lang } from '@/lib/i18n/strings';
-
-const DISMISSED_KEY = 'wv-install-dismissed';
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-};
+import { useState, useSyncExternalStore } from 'react';
+import { Banner } from '@/components/shell/banner';
+import {
+  INSTALL_CHANGE_EVENT,
+  readInstallDismissed,
+  rememberInstallDismissed,
+  type BeforeInstallPromptEvent,
+} from '@/components/shell/install-capture';
+import { useStrings } from '@/components/shell/lang-context';
+import type { Lang } from '@/lib/i18n/strings';
 
 function isStandalone(): boolean {
   return (
@@ -20,91 +21,99 @@ function isStandalone(): boolean {
 
 function isIosSafari(): boolean {
   const ua = window.navigator.userAgent;
-  return /iphone|ipad|ipod/i.test(ua) && /safari/i.test(ua) && !/crios|fxios|edgios/i.test(ua);
+  // iPadOS asks for desktop sites, so its Safari sends a Mac user agent. A Mac
+  // has no touch screen and an iPad does, which is the only tell left.
+  const ios = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  return ios && /safari/i.test(ua) && !/crios|fxios|edgios/i.test(ua);
 }
+
+function subscribeToOffer(onChange: () => void): () => void {
+  window.addEventListener(INSTALL_CHANGE_EVENT, onChange);
+  return () => window.removeEventListener(INSTALL_CHANGE_EVENT, onChange);
+}
+const currentOffer = (): BeforeInstallPromptEvent | null => window.__wvInstallPrompt ?? null;
+const noOfferOnServer = (): null => null;
+
+const neverChanges = (): (() => void) => () => {};
+const wantsIosHint = (): boolean => isIosSafari() && !isStandalone() && !readInstallDismissed();
+const noHintOnServer = (): boolean => false;
 
 /**
  * The one control that actually gets this app installed.
  *
  * Chrome/Edge/Android hand over a real `beforeinstallprompt` event this
- * component can trigger from a button tap. iOS Safari never fires that
+ * component can trigger from a button tap. The root layout catches it while
+ * the page is still loading (see `install-capture.ts`), because on a repeat
+ * visit it can fire before React is listening. iOS Safari never fires that
  * event — there is no programmatic install on iOS — so it gets instructions
  * instead of a button that would silently do nothing.
  *
  * Dismissal is remembered per browser, not per session: someone who closed
  * this once already made their choice, and a wiki they open mid-game is the
  * last place that should nag them again for it.
+ *
+ * Both sources are read with `useSyncExternalStore`, whose server value is
+ * "nothing to show", so hydration matches and the banner simply appears once
+ * the browser has something to offer.
  */
 export function InstallPrompt({ lang }: { lang: Lang }) {
-  const t = strings(lang);
-  // Both start at their hidden value, matching what a server render (no
-  // `window`) would show, so there is nothing for the client to correct
-  // after hydration except turning one of them on.
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [showIos, setShowIos] = useState(false);
+  const t = useStrings(lang);
+  const offer = useSyncExternalStore(subscribeToOffer, currentOffer, noOfferOnServer);
+  const iosHint = useSyncExternalStore(neverChanges, wantsIosHint, noHintOnServer);
+  const [closed, setClosed] = useState(false);
 
-  useEffect(() => {
-    if (isStandalone() || localStorage.getItem(DISMISSED_KEY) === '1') return;
+  /** An offer can be used once; whatever happens next, this one is gone. */
+  const spendOffer = (): void => {
+    window.__wvInstallPrompt = null;
+    window.dispatchEvent(new Event(INSTALL_CHANGE_EVENT));
+  };
 
-    if (isIosSafari()) {
-      // Whether Safari is running as an installed PWA is knowable only on
-      // the client — there is no server-renderable equivalent of this check
-      // to run instead, unlike a subscription an effect would normally exist
-      // to set up.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setShowIos(true);
-      return;
+  const dismiss = (): void => {
+    rememberInstallDismissed();
+    setClosed(true);
+    spendOffer();
+  };
+
+  const install = async (): Promise<void> => {
+    if (!offer) return;
+    try {
+      await offer.prompt();
+      const { outcome } = await offer.userChoice;
+      if (outcome === 'accepted') rememberInstallDismissed();
+    } catch {
+      // Already used, or withdrawn by the browser: there is nothing left to offer.
     }
-
-    const onPrompt = (event: Event) => {
-      event.preventDefault();
-      setDeferred(event as BeforeInstallPromptEvent);
-    };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', onPrompt);
-  }, []);
-
-  const dismiss = () => {
-    localStorage.setItem(DISMISSED_KEY, '1');
-    setDeferred(null);
-    setShowIos(false);
+    spendOffer();
   };
 
-  const install = async () => {
-    if (!deferred) return;
-    await deferred.prompt();
-    const { outcome } = await deferred.userChoice;
-    // Accepted or not, the prompt is spent — Chrome only fires it once per
-    // deferred event — so either way this is the last we see of it.
-    setDeferred(null);
-    if (outcome === 'accepted') dismiss();
-  };
-
-  if (!deferred && !showIos) return null;
+  if (closed || (!offer && !iosHint)) return null;
 
   return (
-    <div
-      role="status"
-      className="flex items-center gap-3 border-b border-forge/30 bg-forge/10 px-4 py-2.5 text-[0.8rem] text-birch"
+    <Banner
+      tone="note"
+      actions={
+        <>
+          {offer ? (
+            <button
+              type="button"
+              onClick={() => void install()}
+              className="inline-flex h-8 items-center rounded-md border border-forge/50 px-3 font-mono text-xs text-forge transition-colors hover:bg-forge/15 pointer-coarse:h-11"
+            >
+              {t.installAction}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label={t.installDismiss}
+            className="inline-flex size-8 items-center justify-center rounded-md text-ash transition-colors hover:bg-moss hover:text-birch pointer-coarse:size-11"
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
+        </>
+      }
     >
-      <span className="flex-1">{showIos ? t.installIosBanner : t.installBanner}</span>
-      {deferred ? (
-        <button
-          type="button"
-          onClick={() => void install()}
-          className="shrink-0 rounded-sm border border-forge/50 px-2.5 py-1 font-mono text-[0.7rem] text-forge transition-colors hover:bg-forge/20"
-        >
-          {t.installAction}
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label={t.installDismiss}
-        className="shrink-0 text-ash transition-colors hover:text-birch"
-      >
-        ✕
-      </button>
-    </div>
+      {offer ? t.installBanner : t.installIosBanner}
+    </Banner>
   );
 }

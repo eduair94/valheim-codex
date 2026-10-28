@@ -26,7 +26,14 @@ const ROLE = 'valheim_app';
 const READ_ONLY = ['pages', 'chunks', 'articles', 'settings', 'ingest_runs', 'locks'];
 
 /** Read-write: everything the app itself creates. */
-const READ_WRITE = ['conversations', 'messages', 'login_attempts', 'article_translations'];
+const READ_WRITE = [
+  'conversations',
+  'messages',
+  'login_attempts',
+  'rate_limits',
+  'article_translations',
+  'article_translation_memory',
+];
 
 const outputPath = process.argv[2] ?? '.app-role-url';
 

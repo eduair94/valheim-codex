@@ -1,9 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import type { Citation } from '@/lib/db/schema';
-import { rune, strings, type Lang } from '@/lib/i18n/strings';
 import type { Route } from 'next';
+import { useStrings } from '@/components/shell/lang-context';
+import type { Citation } from '@/lib/db/schema';
+import { rune } from '@/lib/i18n/format';
+import type { Lang } from '@/lib/i18n/strings';
 import { citationHref } from '@/lib/routes';
 
 /**
@@ -13,6 +15,8 @@ import { citationHref } from '@/lib/routes';
  * in a grounded assistant the sources are the lore. Each row carries its
  * Futhark ordinal and its numeral — the rune for recognition at a glance, the
  * numeral so a marker in the text can still be matched by eye.
+ *
+ * `activeCitation` is this answer's own (see `Answer`).
  */
 export function Sources({
   citations,
@@ -25,8 +29,8 @@ export function Sources({
   activeCitation: number | null;
   onCitationHover: (n: number | null) => void;
 }) {
+  const t = useStrings(lang);
   if (citations.length === 0) return null;
-  const t = strings(lang);
 
   return (
     <section className="mt-5 max-w-[68ch]" aria-label={t.sources}>
@@ -45,7 +49,7 @@ export function Sources({
            */
           const rowProps = {
             className:
-              'source-row group flex items-center gap-3 rounded-sm border border-transparent px-2 py-1.5 transition-colors hover:border-moss hover:bg-peat',
+              'source-row flex min-h-10 items-center gap-3 rounded-sm border border-transparent px-2 py-1 transition-colors hover:border-moss hover:bg-peat pointer-coarse:min-h-11',
             'data-active': activeCitation === c.n,
             onMouseEnter: () => onCitationHover(c.n),
             onMouseLeave: () => onCitationHover(null),
@@ -63,17 +67,20 @@ export function Sources({
               >
                 {rune(c.n)}
               </span>
-              <span className="font-mono text-[0.7rem] text-ash">{c.n}</span>
+              <span className="font-mono text-xs text-ash">{c.n}</span>
               <span className="min-w-0 flex-1 truncate text-sm">
                 <span className="text-birch">{c.title}</span>
                 {c.sectionPath ? <span className="text-ash"> › {c.sectionPath}</span> : null}
               </span>
-              <span
-                className="shrink-0 text-ash opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-                aria-label={t.openArticle}
-              >
-                {c.slug ? '›' : '↗'}
+              {/*
+               * Always shown, not on hover: a touch screen never hovers, and
+               * "›" (in this app) against "↗" (the original wiki, a new tab)
+               * is worth knowing before the tap.
+               */}
+              <span className="shrink-0 text-ash" aria-hidden="true">
+                {link.internal ? '›' : '↗'}
               </span>
+              {link.internal ? null : <span className="sr-only">{t.chatOpensNewTab}</span>}
             </>
           );
 
